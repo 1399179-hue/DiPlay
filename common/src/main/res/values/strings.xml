@@ -945,4 +945,5 @@
     <string name="cluster_small_window_card_opacity">Small-window turn card · opacity</string>
     <string name="turn_card_theme_day">Always day</string>
     <string name="turn_card_theme_night">Always night</string>
+    <string name="bluetooth_connections_not_real">This head unit’s Android Bluetooth reports a connection, but nothing reaches the iPhone: even a connection to a service that does not exist succeeds. Bluetooth here is handled by the maker’s own module, which apps cannot use, so wireless CarPlay cannot work on this head unit. Try a USB connection.</string>
 </resources>

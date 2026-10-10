@@ -119,7 +119,6 @@ internal object CarPlayMediaKeys {
         }
         appContext = context.applicationContext
         controller = next
-<<<<<<< HEAD
         this.manageAudioFocus = manageAudioFocus
         steeringProfile = SteeringProfiles.loadEnabled(context)
         GeelyWheelKeys.start(context)
