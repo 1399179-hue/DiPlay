@@ -17,6 +17,15 @@ data class AudioFormat(
     val channels: Int,
     val payloadType: Int,
     val audioType: String = "media",
+    /**
+     * Playout latency the handset announced in SETUP `audioLatencyMs`, in milliseconds.
+     *
+     * The wired real-time stream asks for tens of milliseconds while the buffered wireless stream
+     * asks for about a second, and the phone then sends that much audio before waiting for the
+     * playout position to catch up. A track sized below the announcement cannot hold what the
+     * handset sends, so the media buffer folds this value in as a floor.
+     */
+    val latencyMs: Int = 0,
 )
 
 /**

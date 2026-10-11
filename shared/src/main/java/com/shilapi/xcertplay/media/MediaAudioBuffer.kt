@@ -17,16 +17,32 @@ object MediaAudioBuffer {
 
     data class Plan(val trackBufferBytes: Int, val startBytes: Int)
 
-    /** AudioTrack capacity and the amount to queue before play() for one output stream. */
-    fun plan(isMedia: Boolean, sampleRate: Int, channels: Int, minBufferBytes: Int, mediaMillis: Int): Plan {
+    /**
+     * AudioTrack capacity and the amount to queue before play() for one output stream.
+     *
+     * [negotiatedLatencyMs] is the SETUP `audioLatencyMs` the handset announced. It is folded in as
+     * a floor because the phone sends that much audio before waiting for our playout position: a
+     * track sized below the announcement cannot hold it, and the overflow is heard as a dropout.
+     * The wired real-time stream announces tens of milliseconds, the buffered wireless stream about
+     * a second, so this matters most on wireless.
+     */
+    fun plan(
+        isMedia: Boolean,
+        sampleRate: Int,
+        channels: Int,
+        minBufferBytes: Int,
+        mediaMillis: Int,
+        negotiatedLatencyMs: Int = 0,
+    ): Plan {
         val lowLatency = Plan(
             trackBufferBytes = maxOf(minBufferBytes * 4, MIN_TRACK_BUFFER_BYTES),
             startBytes = maxOf(minBufferBytes, MIN_START_BUFFER_BYTES),
         )
         if (!isMedia) return lowLatency
+        val durationMillis = maxOf(sanitize(mediaMillis), negotiatedLatencyMs.coerceAtLeast(0))
         val bytesPerSecond = sampleRate.toLong() * channels.coerceIn(1, 2) * 2
-        val start = (bytesPerSecond * sanitize(mediaMillis) / 1000).toInt()
-        val capacity = (bytesPerSecond * (sanitize(mediaMillis) + HEADROOM_MILLIS) / 1000).toInt()
+        val start = (bytesPerSecond * durationMillis / 1000).toInt()
+        val capacity = (bytesPerSecond * (durationMillis + HEADROOM_MILLIS) / 1000).toInt()
         return Plan(
             trackBufferBytes = maxOf(capacity, lowLatency.trackBufferBytes),
             startBytes = maxOf(start, lowLatency.startBytes),
