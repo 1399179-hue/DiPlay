@@ -13,7 +13,7 @@
     <string name="hotspot_join_applied">The hotspot settings have been saved. Turn the hotspot on in car settings, then try connecting.</string>
     <string name="hotspot_join_restored">Full saved configuration restored and verified. Turn the hotspot on in car settings.</string>
     <string name="hotspot_join_unsupported">This hotspot configuration is not supported. Use a compatible 5 GHz hotspot.</string>
-    <string name="hotspot_join_off_required">Hotspot must be confirmed off. Disconnect clients and turn it off in car settings, then retry. DiPlay will not restart it automatically.</string>
+    <string name="hotspot_join_off_required">Hotspot must be confirmed off. Disconnect clients and turn it off in car settings, then retry. LYNK&amp;CO will not restart it automatically.</string>
     <string name="hotspot_join_drift">Configuration changed since the backup. Nothing overwritten. Check again; an outstanding rollback backup is retained.</string>
     <string name="hotspot_join_firmware_changed">Firmware changed. The private backup is retained but cannot safely be restored on this firmware.</string>
     <string name="hotspot_join_cancelled">Cancelled before writing. Check again to inspect any retained rollback state.</string>

@@ -8,7 +8,7 @@
     <string name="projection_three_finger_hint">Swipe up with three fingers in CarPlay to show or hide navigation on the selected screen. Swipe down to open settings.</string>
     <string name="projection_no_guidance">Start navigation on your iPhone first.</string>
     <string name="projection_permission_required">Allow display over other apps in system settings first.</string>
-    <string name="projection_select_display">Select a projection screen in DiPlay settings first.</string>
+    <string name="projection_select_display">Select a projection screen in LYNK&amp;CO settings first.</string>
     <string name="projection_add_navigation">Add navigation to the projection layout first.</string>
     <string name="projection_open_failed">Could not open the selected screen. Please check its availability.</string>
     <string name="projection_navigation_hidden">Navigation projection hidden</string>

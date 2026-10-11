@@ -41,9 +41,9 @@ class SettingsLayoutPolicyTest {
     }
 
     @Test fun railGrowsWithTextUpToALimit() {
-        assertEquals(240, SettingsLayoutPolicy.railWidthDp(1f))
-        assertEquals(312, SettingsLayoutPolicy.railWidthDp(1.3f))
-        assertEquals(360, SettingsLayoutPolicy.railWidthDp(2f))
+        assertEquals(176, SettingsLayoutPolicy.railWidthDp(1f))
+        assertEquals(228, SettingsLayoutPolicy.railWidthDp(1.3f))
+        assertEquals(264, SettingsLayoutPolicy.railWidthDp(2f))
     }
 
     @Test fun everySettingsSectionHasExactlyOneDestination() {

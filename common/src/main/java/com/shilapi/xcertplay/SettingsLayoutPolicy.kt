@@ -8,7 +8,7 @@ internal object SettingsLayoutPolicy {
     const val EXPANDED_MIN_HEIGHT_DP = 400
     // Two overview columns need about 320 dp each beside the rail.
     const val OVERVIEW_TWO_COLUMN_MIN_WIDTH_DP = 1000
-    const val RAIL_WIDTH_DP = 240
+    const val RAIL_WIDTH_DP = 176
     private const val MAX_RAIL_SCALE = 1.5f
 
     // Larger text needs proportionally more width before the rail and content fit side by side.

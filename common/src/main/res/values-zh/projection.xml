@@ -8,7 +8,7 @@
     <string name="projection_three_finger_hint">在 CarPlay 内三指上滑，可显示或收起选定屏幕上的导航；下滑仍打开设置。</string>
     <string name="projection_no_guidance">请先在手机上开启导航。</string>
     <string name="projection_permission_required">请先在系统设置中允许悬浮显示。</string>
-    <string name="projection_select_display">请先在 DiPlay 设置中选择投屏显示屏。</string>
+    <string name="projection_select_display">请先在 LYNK&amp;CO 设置中选择投屏显示屏。</string>
     <string name="projection_add_navigation">请先在投屏布局中添加导航内容。</string>
     <string name="projection_open_failed">暂时无法打开选定屏幕，请确认显示屏可用。</string>
     <string name="projection_navigation_hidden">已收起导航投屏</string>

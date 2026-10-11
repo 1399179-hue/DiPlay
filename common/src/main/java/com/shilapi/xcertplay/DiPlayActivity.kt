@@ -969,8 +969,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         background = rounded(SURFACE, BORDER)
         setPadding(dp(12), dp(12), dp(12), dp(12))
         SettingsCategory.entries.forEach { category ->
-            addView(settingsRailDestination(category), matchButton(0, 52).apply {
-                bottomMargin = if (category == SettingsCategory.entries.last()) 0 else dp(8)
+            addView(settingsRailDestination(category), matchButton(0, RAIL_ROW_HEIGHT_DP).apply {
+                bottomMargin = if (category == SettingsCategory.entries.last()) 0 else dp(RAIL_ROW_GAP_DP)
             })
         }
     }
@@ -1001,12 +1001,12 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                     cornerRadius = dp(2).toFloat()
                 }
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(dp(4), dp(34)).apply { marginEnd = dp(10) })
+            }, LinearLayout.LayoutParams(dp(3), dp(RAIL_ROW_HEIGHT_DP - 14)).apply { marginEnd = dp(8) })
             addView(ImageView(this@DiPlayActivity).apply {
                 setImageResource(settingsCategoryIcon(category))
                 imageTintList = ColorStateList.valueOf(if (selected) ACCENT else TEXT)
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            }, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(12) })
+            }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { marginEnd = dp(10) })
             addView(label(title, 16, if (selected) ACCENT else TEXT, true,
                 centreGlyphs = usesChineseGlyphAlignment(resources.configuration.locales[0].language, title)),
                 LinearLayout.LayoutParams(0, -1, 1f))
@@ -5968,5 +5968,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         private const val NOTE_LINE_GAP_DP = 4
         private const val NOTE_ATTACH_GAP_DP = 6
         private const val SETTINGS_BLOCK_GAP_DP = 16
+    private val RAIL_ROW_HEIGHT_DP = 44
+    private val RAIL_ROW_GAP_DP = 6
     }
 }

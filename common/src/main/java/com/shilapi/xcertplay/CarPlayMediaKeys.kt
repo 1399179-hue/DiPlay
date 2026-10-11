@@ -547,7 +547,7 @@ internal object CarPlayMediaKeys {
         focusRequest = request.takeIf { manageAudioFocus }
         focusHeld = granted
         if (granted) forwardGrantedFocusLocked()
-        session = MediaSession(context, "DiPlay CarPlay").apply {
+        session = MediaSession(context, "LYNK&CO CarPlay").apply {
             setCallback(callback, mainHandler)
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
             isActive = true

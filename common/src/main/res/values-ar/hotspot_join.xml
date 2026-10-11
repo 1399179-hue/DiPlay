@@ -13,7 +13,7 @@
     <string name="hotspot_join_applied">تم حفظ إعدادات نقطة الاتصال. شغّل نقطة الاتصال من إعدادات السيارة، ثم حاول الاتصال.</string>
     <string name="hotspot_join_restored">تمت استعادة الإعدادات المحفوظة بالكامل والتحقق منها. شغل نقطة الاتصال من إعدادات السيارة.</string>
     <string name="hotspot_join_unsupported">إعداد نقطة الاتصال هذا غير مدعوم. استخدم نقطة اتصال متوافقة بتردد 5 غيغاهرتز.</string>
-    <string name="hotspot_join_off_required">يجب التأكد من إيقاف نقطة الاتصال. افصل الأجهزة وأوقفها من إعدادات السيارة ثم أعد المحاولة. لن يعيد DiPlay تشغيلها تلقائيًا.</string>
+    <string name="hotspot_join_off_required">يجب التأكد من إيقاف نقطة الاتصال. افصل الأجهزة وأوقفها من إعدادات السيارة ثم أعد المحاولة. لن يعيد LYNK&amp;CO تشغيلها تلقائيًا.</string>
     <string name="hotspot_join_drift">تغيرت الإعدادات منذ النسخ الاحتياطي. لم تستبدل. افحص مجددًا؛ تحتفظ النسخة المعلقة للاستعادة.</string>
     <string name="hotspot_join_firmware_changed">تغير البرنامج الثابت. النسخة الخاصة محفوظة لكن لا يمكن استعادتها بأمان على هذا البرنامج.</string>
     <string name="hotspot_join_cancelled">ألغي قبل الكتابة. افحص مجددًا لمعرفة حالة الاستعادة المحفوظة.</string>

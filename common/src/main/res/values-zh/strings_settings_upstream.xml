@@ -35,7 +35,7 @@
     <string name="settings_ambient_title">氛围灯（实验性）</string>
     <string name="settings_ambient_unavailable">只读检查失败：已有ADB授权或支持的氛围灯接口不可用，灯光设置未保存。请在停车时单独配置访问权限，本功能不会启用ADB或申请授权。</string>
     <string name="settings_direct_video_output">直接视频输出（实验性）</string>
-    <string name="settings_direct_video_output_description">将 CarPlay 画面直接交给车机的系统合成器，而不是在 DiPlay 窗口内绘制。可将延迟降低约一次屏幕刷新。画面调整不适用。会重新连接 CarPlay。</string>
+    <string name="settings_direct_video_output_description">将 CarPlay 画面直接交给车机的系统合成器，而不是在 LYNK&amp;CO 窗口内绘制。可将延迟降低约一次屏幕刷新。画面调整不适用。会重新连接 CarPlay。</string>
     <string name="settings_discard_pending_confirm">放弃</string>
     <string name="settings_discard_pending_message">你刚更改的分辨率、帧率、连接以及其余设置尚未保存。“保存并重新连接”会应用它们。</string>
     <string name="settings_discard_pending_title">要放弃更改吗？</string>

@@ -13,7 +13,7 @@
     <string name="hotspot_join_applied">Los ajustes del punto de acceso se han guardado. Activa el punto de acceso en los ajustes del vehículo e intenta conectarte.</string>
     <string name="hotspot_join_restored">Configuración completa restaurada y verificada. Enciende el punto de acceso en los ajustes del coche.</string>
     <string name="hotspot_join_unsupported">Esta configuración del punto de acceso no es compatible. Usa un punto de acceso de 5 GHz compatible.</string>
-    <string name="hotspot_join_off_required">El punto de acceso debe estar confirmado como apagado. Desconecta clientes, apágalo en los ajustes y reintenta. DiPlay no lo reiniciará automáticamente.</string>
+    <string name="hotspot_join_off_required">El punto de acceso debe estar confirmado como apagado. Desconecta clientes, apágalo en los ajustes y reintenta. LYNK&amp;CO no lo reiniciará automáticamente.</string>
     <string name="hotspot_join_drift">La configuración cambió desde la copia. No se sobrescribió nada. Comprueba de nuevo; se conserva la copia de restauración pendiente.</string>
     <string name="hotspot_join_firmware_changed">El firmware cambió. La copia privada se conserva, pero no se puede restaurar de forma segura en este firmware.</string>
     <string name="hotspot_join_cancelled">Cancelado antes de escribir. Comprueba de nuevo el estado de restauración retenido.</string>
