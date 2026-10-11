@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.airplay
 
 import android.util.Log
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
+import com.shilapi.xcertplay.network.SocketWriteDeadline
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -319,9 +320,11 @@ class AirPlaySession(
         trace("airplay event tx headers=$head bodyHex=${body.toHex()}")
         return try {
             val bytes = cipher.encrypt(head.toByteArray(Charsets.US_ASCII) + body)
-            val output = socket.getOutputStream()
-            output.write(bytes)
-            output.flush()
+            SocketWriteDeadline.write(socket, EVENT_WRITE_TIMEOUT_MILLIS) {
+                val output = socket.getOutputStream()
+                output.write(bytes)
+                output.flush()
+            }
             true
         } catch (error: Exception) {
             Log.w(TAG, "airplay event command failed type=${command["type"]}", error)
@@ -950,6 +953,9 @@ class AirPlaySession(
         private val BUFFERED_AUDIO_METHODS = setOf("SETRATE", "SETRATEANCHORTIME", "GETANCHOR", "FLUSHBUFFERED")
 
         const val READ_CHUNK_BYTES = 16 * 1024
+        // A blocking event write on a half-dead peer parks the thread that holds the event write
+        // lock; SocketWriteDeadline closes the socket at this deadline instead.
+        const val EVENT_WRITE_TIMEOUT_MILLIS = 4_000L
         const val ZOOM_DIRECTION_IN = 0
         const val ZOOM_DIRECTION_OUT = 1
         const val EVENT_READY_POLL_MILLIS = 25L

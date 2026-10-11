@@ -43,6 +43,7 @@ class NcmUsbBridge internal constructor(
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
     private var optionalShortPacketPad = false
+    private var resyncLogged = false
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
@@ -193,12 +194,16 @@ class NcmUsbBridge internal constructor(
                 }
                 optionalShortPacketPad = false
             }
-            if (bufferedSize < 12) return
-            if (readU32(buffered, 0) != Ntb16Codec.NTH16_SIG) {
-                throw failSession("NCM read buffer does not begin with an NTB16 header")
+            if (bufferedSize < NTB16_HEADER_BYTES) return
+            val blockLength = blockLengthAt(buffered, 0, bufferedSize)
+            if (blockLength < 0) {
+                // A USB short transfer may leave the buffer a few bytes off a block boundary.
+                // Re-synchronise on the next credible header rather than latching the transport
+                // dead, because failSession() is one-shot and both bridge directions share this
+                // instance.
+                if (resyncToBlockStart()) continue
+                return
             }
-            val blockLength = readU16(buffered, 8)
-            if (blockLength < 28) throw failSession("Invalid NTB16 block length $blockLength")
             if (bufferedSize < blockLength) return
             for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
             val remaining = bufferedSize - blockLength
@@ -206,6 +211,65 @@ class NcmUsbBridge internal constructor(
             bufferedSize = remaining
             optionalShortPacketPad = blockLength % USB_PACKET_SIZE == 0
         }
+    }
+
+    /**
+     * Returns the NTB16 block length at [offset], or -1 when those bytes are not a credible block
+     * start.
+     *
+     * The check covers the NTH16 signature and header-length field plus the NDP16 signature, so an
+     * Ethernet payload that happens to contain the 4-byte signature cannot be mistaken for a block
+     * boundary while re-synchronising.
+     */
+    private fun blockLengthAt(source: ByteArray, offset: Int, size: Int): Int {
+        if (offset + NTB16_HEADER_BYTES > size) return -1
+        if (readU32(source, offset) != Ntb16Codec.NTH16_SIG) return -1
+        if (readU16(source, offset + 4) != NTB16_HEADER_BYTES) return -1
+        val blockLength = readU16(source, offset + 8)
+        if (blockLength < NTB16_MIN_BLOCK_BYTES || blockLength > NTB16_MAX_BLOCK_BYTES) return -1
+        // Mirror Ntb16Codec.parse, which reads the first NDP16 table through the header's own
+        // wNdpIndex instead of assuming it sits immediately after the NTH16 header.
+        val ndpOffset = readU16(source, offset + 10)
+        if (ndpOffset < NTB16_HEADER_BYTES || ndpOffset > NTB16_MAX_NDP_OFFSET_BYTES) return -1
+        // Check the NDP16 signature as soon as those bytes have arrived, so an Ethernet payload that
+        // merely happens to contain the NTH16 signature cannot pass as a block boundary.
+        if (offset + ndpOffset + 4 <= size &&
+            readU32(source, offset + ndpOffset) != Ntb16Codec.NDP16_SIG
+        ) {
+            return -1
+        }
+        return blockLength
+    }
+
+    /**
+     * Drops leading bytes until a credible NTB16 header starts the buffer.
+     *
+     * Returns true when the caller should re-run its framing loop. When no candidate is present the
+     * buffer keeps only the bytes that could still begin a header split across two USB reads.
+     */
+    private fun resyncToBlockStart(): Boolean {
+        var offset = 1
+        while (offset + NTB16_HEADER_BYTES <= bufferedSize) {
+            if (blockLengthAt(buffered, offset, bufferedSize) >= 0) {
+                if (!resyncLogged) {
+                    resyncLogged = true
+                    Log.w(
+                        IphoneCarPlayConfiguration.TAG,
+                        "ncm resynchronised on an NTB16 header after $offset stray byte(s)",
+                    )
+                }
+                val remaining = bufferedSize - offset
+                buffered.copyInto(buffered, 0, offset, bufferedSize)
+                bufferedSize = remaining
+                return true
+            }
+            offset++
+        }
+        val keep = minOf(bufferedSize, NTB16_HEADER_BYTES - 1)
+        val remaining = bufferedSize - keep
+        buffered.copyInto(buffered, 0, remaining, bufferedSize)
+        bufferedSize = keep
+        return false
     }
 
     private fun appendBuffered(source: ByteArray, length: Int) {
@@ -325,6 +389,10 @@ class NcmUsbBridge internal constructor(
     companion object {
         private const val READ_CHUNK_BYTES = 32 * 1024
         private const val USB_PACKET_SIZE = 512
+        private const val NTB16_HEADER_BYTES = 12
+        private const val NTB16_MIN_BLOCK_BYTES = 28
+        private const val NTB16_MAX_BLOCK_BYTES = 0xffff
+        private const val NTB16_MAX_NDP_OFFSET_BYTES = 64
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L
         private const val MAX_QUEUED_FRAMES = 256
