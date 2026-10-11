@@ -63,7 +63,52 @@ jobs:
             echo "ANDROID_KEY_PASSWORD=merged-build"
           } >> "${GITHUB_ENV}"
 
+      # DiPlayBootstrap.ensure() needs assets/offline-mfi/{identity.pk8,certificate.p7b} at
+      # runtime or the UI shows "无法加载 CarPlay 认证". mobile/build.gradle.kts only adds them
+      # when DIPLAY_AUTH_ASSETS_DIR points at a directory holding offline-mfi/{the two files},
+      # and its verification task rejects any other credential files. Prefer repository
+      # secrets; fall back to extracting from a public DiPlay release APK (same fallback the
+      # nomfi workflow uses).
+      - name: Obtain offline MFi identity
+        env:
+          PK8_B64: ${{ secrets.MFI_IDENTITY_PK8_B64 }}
+          P7B_B64: ${{ secrets.MFI_CERTIFICATE_P7B_B64 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dest="${RUNNER_TEMP}/auth-assets/offline-mfi"
+          mkdir -p "${dest}"
+          if [[ -n "${PK8_B64:-}" && -n "${P7B_B64:-}" ]]; then
+            echo "Identity source: repository secrets"
+            printf '%s' "${PK8_B64}" | base64 --decode > "${dest}/identity.pk8"
+            printf '%s' "${P7B_B64}" | base64 --decode > "${dest}/certificate.p7b"
+          else
+            echo "Identity source: DiPlay release APK (no repository secrets configured)"
+            # NOT /releases/latest: every DiPlay release is a prerelease, that endpoint 404s.
+            api="https://api.github.com/repos/shihabal3amri/DiPlay/releases?per_page=20"
+            url="$(curl -fsSL \
+                      -H "Authorization: Bearer ${GH_TOKEN}" \
+                      -H "Accept: application/vnd.github+json" \
+                      "${api}" 2>/dev/null \
+                    | jq -r '[.[] | select(.draft | not)] | .[0].assets[] | select(.name | endswith(".apk")) | .browser_download_url' \
+                    | head -1 || true)"
+            if [[ -z "${url}" || "${url}" == "null" ]]; then
+              url="https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.6/DiPlay-0.2.6.apk"
+              echo "::warning::GitHub API did not return a release asset; using the pinned URL ${url}"
+            fi
+            echo "Downloading ${url}"
+            curl -fsSL --retry 3 --retry-delay 5 "${url}" -o "${RUNNER_TEMP}/diplay.apk"
+            unzip -o -q "${RUNNER_TEMP}/diplay.apk" 'assets/offline-mfi/*' -d "${RUNNER_TEMP}/diplay"
+            cp "${RUNNER_TEMP}/diplay/assets/offline-mfi/identity.pk8" "${dest}/identity.pk8"
+            cp "${RUNNER_TEMP}/diplay/assets/offline-mfi/certificate.p7b" "${dest}/certificate.p7b"
+            rm -f "${RUNNER_TEMP}/diplay.apk"
+            rm -rf "${RUNNER_TEMP}/diplay"
+          fi
+          ls -l "${dest}"
+
       - name: Build the release APK
+        env:
+          DIPLAY_AUTH_ASSETS_DIR: ${{ runner.temp }}/auth-assets
         run: ./gradlew :mobile:assembleRelease --stacktrace
 
       - name: Verify and upload the APK
