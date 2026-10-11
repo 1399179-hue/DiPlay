@@ -21,6 +21,7 @@ import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import com.shilapi.xcertplay.vehicle.GeelyFactoryCarPlay
 import com.shilapi.xcertplay.media.AudioOutputDevice
+import com.shilapi.xcertplay.media.MicrophoneGain
 import java.io.File
 
 /** SharedPreferences persistence for the accessory identity and paired controllers. */
@@ -61,6 +62,7 @@ object AirPlayPersistence {
     private const val KEY_MANUAL_HOTSPOT_CHANNEL = "manual_hotspot_channel"
     private const val KEY_MANUAL_HOTSPOT_SECURITY = "manual_hotspot_security"
     private const val KEY_DEBUG_LOGS_ENABLED = "debug_logs_enabled"
+    private const val KEY_MICROPHONE_GAIN_PERCENT = "microphone_gain_percent"
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
     private const val KEY_OEM_LABEL = "oem_label"
@@ -244,6 +246,21 @@ object AirPlayPersistence {
     fun saveAudioFocusAutoYield(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_AUDIO_FOCUS_AUTO_YIELD, enabled)
+            .apply()
+    }
+
+    /**
+     * Microphone capture gain in percent. Clamped on read as well as write so a value written by an
+     * older or hand-edited preference store can never reach the capture path out of range.
+     */
+    fun loadMicrophoneGainPercent(context: Context): Int = MicrophoneGain.sanitize(
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_MICROPHONE_GAIN_PERCENT, MicrophoneGain.DEFAULT_PERCENT),
+    )
+
+    fun saveMicrophoneGainPercent(context: Context, percent: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_MICROPHONE_GAIN_PERCENT, MicrophoneGain.sanitize(percent))
             .apply()
     }
 

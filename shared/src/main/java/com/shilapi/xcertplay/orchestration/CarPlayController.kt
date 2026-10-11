@@ -48,7 +48,9 @@ import com.shilapi.xcertplay.network.CarPlayBonjour
 import com.shilapi.xcertplay.network.diagnosticSummary
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.network.LocalOnlyHotspotManager
+import com.shilapi.xcertplay.network.LynkTcamHotspotManager
 import com.shilapi.xcertplay.network.ManualHotspotManager
+import com.shilapi.xcertplay.platform.HeadUnitProfiles
 import com.shilapi.xcertplay.network.ExistingWifiManager
 import com.shilapi.xcertplay.network.HotspotAddressPolicy
 import com.shilapi.xcertplay.network.HotspotAddressRecovery
@@ -2298,17 +2300,32 @@ class CarPlayController(
                 appContext, config.existingWifiSsid, config.existingWifiPassphrase, ::debugLog,
                 onNetworkChanged = { if (!isStaleWirelessRun(generation)) restartWireless() },
             )
-            WirelessHotspotMode.MANUAL -> ManualHotspotManager(
-                context = appContext,
-                ssid = config.manualHotspotSsid
-                    ?: throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot SSID is not configured"),
-                passphrase = config.manualHotspotPassphrase.orEmpty(),
-                band = config.manualHotspotBand,
-                channel = config.manualHotspotChannel,
-                security = config.manualHotspotSecurity,
-                onDiagnostic = { debugLog("generation=$generation $it") },
-                isCancelled = { isStaleWirelessRun(generation) },
-            )
+            WirelessHotspotMode.MANUAL -> if (
+                HeadUnitProfiles.current().id == HeadUnitProfiles.LYNK_03.id
+            ) {
+                // On this head unit the access point belongs to the TCAM module and Android never
+                // publishes its SSID, passphrase, channel or BSSID, so ManualHotspotManager has
+                // nothing to read and falls back to a placeholder identity. Read the live
+                // configuration from the module instead and join it as a Wi-Fi client.
+                LynkTcamHotspotManager(
+                    context = appContext,
+                    onDiagnostic = { message -> debugLog("generation=$generation $message") },
+                    savedSsid = config.manualHotspotSsid,
+                    savedPassphrase = config.manualHotspotPassphrase,
+                )
+            } else {
+                ManualHotspotManager(
+                    context = appContext,
+                    ssid = config.manualHotspotSsid
+                        ?: throw WirelessStartupException(WirelessStartupFailure.HOTSPOT_CONFIGURATION, "Manual hotspot SSID is not configured"),
+                    passphrase = config.manualHotspotPassphrase.orEmpty(),
+                    band = config.manualHotspotBand,
+                    channel = config.manualHotspotChannel,
+                    security = config.manualHotspotSecurity,
+                    onDiagnostic = { debugLog("generation=$generation $it") },
+                    isCancelled = { isStaleWirelessRun(generation) },
+                )
+            }
         }
         synchronized(wirelessResourceLock) {
             if (isStaleWirelessRun(generation)) {

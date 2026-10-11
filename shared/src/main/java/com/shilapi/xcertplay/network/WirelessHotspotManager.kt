@@ -9,6 +9,8 @@ enum class WirelessHotspotBackend(val label: String) {
     LOCAL_ONLY_HOTSPOT("LocalOnlyHotspot"),
     MANUAL_HOTSPOT("Manual hotspot"),
     EXISTING_WIFI("Existing Wi-Fi / Same LAN"),
+    /** The car's own factory hotspot, read from the TCAM module; the head unit joins as a client. */
+    LYNK_TCAM_WIFI("Lynk TCAM Wi-Fi"),
 }
 
 /** The live Wi-Fi credentials and interface details for a wireless CarPlay network. */
@@ -48,6 +50,12 @@ interface WirelessHotspotManager : Closeable {
 
     /** The authenticated wireless session has rendered CarPlay; AP creation alone is insufficient. */
     fun onCarPlayConfirmed() {}
+
+    /**
+     * True when this backend already reached the head unit's own Wi-Fi, so the coordinator does not
+     * have to redo the bootstrap on a retry.
+     */
+    fun hasPreferredNetworkAvailable(): Boolean = false
 
     /** Counts reported by the framework, when available; never contains station identities. */
     fun connectionDiagnosticSnapshot(): String = "association=not_exposed"

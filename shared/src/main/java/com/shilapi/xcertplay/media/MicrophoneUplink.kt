@@ -40,6 +40,8 @@ internal class MicrophoneUplink(
     private val preferredInput: AudioOutputDevice? = null,
     private val audioManager: AudioManager? = null,
     private val counters: MicrophoneCounters = MicrophoneCounters(),
+    /** User-selectable capture gain applied to every PCM16 frame before encoding. */
+    microphoneGainPercent: Int = MicrophoneGain.DEFAULT_PERCENT,
     private val opusEncoderFactory: (Int) -> MicrophoneOpusEncoder? = { bitrate ->
         MicrophoneOpusEncoders.create(
             bitrate = bitrate,
@@ -50,6 +52,7 @@ internal class MicrophoneUplink(
     },
 ) : Closeable {
     private val running = AtomicBoolean(false)
+    private val gainPercent = MicrophoneGain.sanitize(microphoneGainPercent)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
         Log.i(TAG, message)
         onDiagnostic(message)
@@ -326,6 +329,10 @@ internal class MicrophoneUplink(
                     stats.flush(routeType = routeInfo)
                     continue
                 }
+                // Gain the captured PCM before it is framed and encoded, so the level the handset
+                // receives is the user's choice rather than whatever the head unit's mic preamp
+                // happens to produce. The echo canceller still runs on the gained near-end signal.
+                MicrophoneGain.applyPcm16InPlace(readBuffer, count, gainPercent)
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)

@@ -64,6 +64,8 @@ class AndroidMediaSink(
     private val navigationStreamType: Int = AudioChannelMapper.DEFAULT_NAVIGATION_STREAM_TYPE,
     onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
+    /** User-selectable capture gain for the microphone uplink; 100 leaves the capture untouched. */
+    private val microphoneGainPercent: Int = MicrophoneGain.DEFAULT_PERCENT,
     private val onAudioDiagnostic: (String) -> Unit = {},
     /** True while any music ("media") audio stream is running; called from media threads. */
     private val onMediaAudioChanged: (Boolean) -> Unit = {},
@@ -481,7 +483,8 @@ class AndroidMediaSink(
                     ActiveMicrophone(pending, MicrophoneUplink(config, onAudioDiagnostic,
                         speakerphoneCall = speakerphoneCall,
                         echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null,
-                        counters = pending.counters))
+                        counters = pending.counters,
+                        microphoneGainPercent = microphoneGainPercent))
                 }
                 if (!active.uplink.start()) {
                     microphoneUplinks.remove(id, active)
@@ -592,7 +595,8 @@ class AndroidMediaSink(
                     echoReference = if (config.audioType == TELEPHONY_AUDIO_TYPE) callEchoReferences[id] else null,
                     factorySource = factoryAudio?.microphoneSource(config.audioType, config.sampleRate, wirelessAudio),
                     preferredInput = audioOutputRoutes.microphone(config.audioType),
-                    audioManager = audioManager, counters = pending.counters)
+                    audioManager = audioManager, counters = pending.counters,
+                    microphoneGainPercent = microphoneGainPercent)
                 if (uplink.start() && !closed && pendingMicrophones[id] === pending) microphoneUplinks[id] = ActiveMicrophone(pending, uplink)
                 else { uplink.close(); pending.retryAt = android.os.SystemClock.elapsedRealtime() + 5_000L }
             } catch (error: Exception) {
