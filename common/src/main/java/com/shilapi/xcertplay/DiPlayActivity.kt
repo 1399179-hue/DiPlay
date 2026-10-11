@@ -390,8 +390,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         setupStep = savedInstanceState?.getInt("setup_step") ?: SetupGuide.STEP_CAR
         setupFromSettings = savedInstanceState?.getBoolean("setup_from_settings") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
+            // Tapping the launcher icon opens Settings directly: this build is for the 领克 03, where
+            // the driver adjusts settings rather than watching a home screen. A live session still
+            // jumps to the projection above.
             ?: if (setupError == null && SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(this),
-                    DiPlayPreferences.phoneAddress(this) != null)) "setup" else "home"
+                    DiPlayPreferences.phoneAddress(this) != null)) "setup" else "settings"
         render()
         scheduleAutomaticVehicleValidation()
         handleWirelessRecovery()
@@ -2714,7 +2717,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         content.addView(progress)
         when (step) {
-            SetupGuide.STEP_CAR -> setupCarStep(content)
+            // STEP_CAR (the DiLink generation picker) is BYD-only knowledge; this build targets the
+            // 领克 03, so the guide shows the connection step there instead.
+            SetupGuide.STEP_CAR -> setupConnectionStep(content)
             SetupGuide.STEP_CONNECTION -> setupConnectionStep(content)
             SetupGuide.STEP_IPHONE -> setupIphoneStep(content)
             SetupGuide.STEP_FEATURES -> setupFeaturesStep(content)
@@ -2733,34 +2738,6 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private fun setupTitle(content: LinearLayout, title: Int, description: String) {
         content.addView(label(getString(title), 34, TEXT, true))
         content.addView(label(description, 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
-    }
-
-    private fun setupCarStep(content: LinearLayout) {
-        val detection = DiLinkGeneration.detect()
-        val selected = DiLinkGeneration.confirmed(this) ?: detection.generation
-        setupTitle(content, R.string.setup_car_title, when (detection.source) {
-            DiLinkGeneration.Source.SYSTEM_VERSION -> getString(R.string.setup_car_detected, dilinkLabel(detection.generation))
-            DiLinkGeneration.Source.LIKELY -> getString(R.string.setup_car_likely, dilinkLabel(detection.generation))
-            DiLinkGeneration.Source.NONE -> getString(R.string.setup_car_unknown)
-        })
-        val card = card()
-        card.addView(label(getString(R.string.setup_car_choose), 22, TEXT, true))
-        val wide = resources.configuration.screenWidthDp >= 850
-        val choices = if (wide) row() else column()
-        DiLinkGeneration.entries.forEachIndexed { index, generation ->
-            val chosen = generation == selected
-            choices.addView(button("${if (chosen) "✓  " else ""}${dilinkLabel(generation)}", chosen) {
-                DiLinkGeneration.save(this, generation)
-                render()
-            }, if (wide) LinearLayout.LayoutParams(0, dp(60), 1f).apply {
-                topMargin = dp(12); if (index > 0) marginStart = dp(12)
-            } else matchButton(12, 60))
-        }
-        card.addView(choices)
-        detection.evidence?.let {
-            card.addView(label(getString(R.string.setup_car_evidence, it), 13, MUTED).apply { setPadding(0, dp(16), 0, 0) })
-        }
-        content.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(SETTINGS_BLOCK_GAP_DP) })
     }
 
     private fun setupConnectionStep(content: LinearLayout) {

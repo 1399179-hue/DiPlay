@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit
 
 /** Publishes CarPlay route arrows, distance and street to BYD's native windshield HUD. */
 internal object BydHudBridge {
+    private const val BIND_BACKOFF_ATTEMPTS = 20
     private const val TAG = "DiPlay-BYD-HUD"
     private const val SOMEIP_PACKAGE = "com.ts.car.someip.service"
     private const val SOMEIP_CLASS = "com.ts.car.someip.service.manager.SomeIpServerService"
@@ -40,6 +41,7 @@ internal object BydHudBridge {
     private var guidanceSentLogged = false
     private var showing = false
     private var lastSendResult: Int? = null
+    private var failedBinds = 0
     private var icons: Map<Int, ByteArray>? = null
 
     // The gateway pings registered callbacks and drops registrations that do not answer like an AIDL stub.
@@ -104,7 +106,15 @@ internal object BydHudBridge {
     }
 
     private fun tick() = synchronized(lock) {
-        if (binder == null && !binding) bindLocked()
+        if (binder == null && !binding) {
+            // A gateway that is simply not installed answers bindService=false forever; retrying
+            // every REPEAT_MILLIS on such a head unit only floods the log and wakes the CPU. Back
+            // off 20x (6 s) between attempts; a successful bind resets the back-off.
+            failedBinds += 1
+            if (failedBinds % BIND_BACKOFF_ATTEMPTS == 1) bindLocked()
+            return
+        }
+        failedBinds = 0
         sendCurrentLocked()
     }
 
@@ -170,6 +180,7 @@ internal object BydHudBridge {
             }
             binding = appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
             Log.i(TAG, "bindService=$binding")
+            if (binding) failedBinds = 0
         } catch (error: Throwable) {
             binding = false
             Log.w(TAG, "cannot bind SOME/IP service", error)
