@@ -12,7 +12,6 @@ import android.os.Looper
 import android.os.Parcel
 import android.os.SystemClock
 import android.util.Log
-import com.shilapi.xcertplay.media.CarPlayMediaKeys
 import java.util.concurrent.ConcurrentHashMap
 
 /**
