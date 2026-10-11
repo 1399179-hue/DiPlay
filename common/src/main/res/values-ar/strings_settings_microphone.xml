@@ -4,4 +4,5 @@
     <string name="settings_microphone_gain">مُكبِّر صوت الميكروفون</string>
     <string name="settings_microphone_gain_hint">يضبط مستوى الصوت الذي يرسله ميكروفون السيارة إلى iPhone. ارفعه إذا كان صوتك خافتًا، واخفضه إذا تشوّه الصوت أو خفّض iPhone المستوى تلقائيًا. يُطبَّق عند الاتصال التالي.</string>
     <string name="settings_microphone_gain_value">%1$d%%</string>
+    <string name="traffic_usage_session">بيانات الجلسة: المُرسل %1$s · المُستلم %2$s</string>
 </resources>

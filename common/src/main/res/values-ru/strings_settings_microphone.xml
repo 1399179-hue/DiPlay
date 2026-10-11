@@ -4,4 +4,5 @@
     <string name="settings_microphone_gain">Усиление микрофона</string>
     <string name="settings_microphone_gain_hint">Регулирует уровень, который микрофон автомобиля отправляет на iPhone. Повышайте, если вас плохо слышно; понижайте при искажениях или если iPhone сам снижает уровень. Применяется при следующем подключении.</string>
     <string name="settings_microphone_gain_value">%1$d%%</string>
+    <string name="traffic_usage_session">Трафик сессии: отправлено %1$s · получено %2$s</string>
 </resources>

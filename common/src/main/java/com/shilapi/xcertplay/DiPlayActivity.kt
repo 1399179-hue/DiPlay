@@ -201,6 +201,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private var developerVersionTaps = 0
     private var rootScroll: ScrollView? = null
     private var settingsRailScroll: ScrollView? = null
+    private val trafficUsage = com.shilapi.xcertplay.diagnostics.TrafficUsage()
+    private var trafficUsageView: TextView? = null
     private var reconnectBar: View? = null
     private var readinessCard: LinearLayout? = null
     private var searchIndexSink: MutableList<String>? = null
@@ -276,7 +278,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         connect(notificationTransport)
     }
     private val tick = object : Runnable {
-        override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
+        override fun run() { refreshStatus(); refreshTrafficUsage(); handler.postDelayed(this, 1000) }
     }
     private val appearancePoll = object : Runnable {
         override fun run() {
@@ -664,7 +666,9 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         rootScroll = scroll
         val content = column()
         scroll.addView(content)
-        val header = if (page == "settings") settingsHeader(compact) else standardHeader(compact)
+        // Settings and About share one header shape: Back on the left, appearance on the right.
+        // Home keeps the standard header; its right-side button is the car-home shortcut.
+        val header = if (page == "settings" || page == "about") settingsHeader(compact) else standardHeader(compact)
         val root: View = if (page == "settings" && isExpandedSettingsLayout) {
             content.setPadding(0, 0, 0, dp(32))
             settingsCategoryContent(content)
@@ -1184,6 +1188,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         toggle(this, getString(R.string.report_location_to_iphone),
             "${getString(R.string.location_reporting_reconnects)} ${getString(R.string.sends_precise_android_location_as_carplay_gps_data_when_th)}",
             AirPlayPersistence.loadLocationReportingEnabled(this@DiPlayActivity), save = ::onLocationReportingChanged)
+        trafficUsageView = label("", 14, MUTED).apply { visibility = View.GONE }
+        addView(trafficUsageView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) })
         Unit
     }
 
@@ -5065,8 +5071,27 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             lastRunning = running
         }
         connectButton?.isEnabled = setupError == null
+        if (running && !trafficUsage.hasStarted()) trafficUsage.start()
         refreshReconnectBar()
         refreshReadiness()
+    }
+
+    /**
+     * Bytes this device and the iPhone exchanged while the current session has been live, sampled
+     * once a second off the existing status tick. The row only exists on the Overview page, and
+     * disappears with the card when no session is running: the last session's totals stay in
+     * [TrafficUsage] until the next one starts, which is the figure a driver quoting a bug report
+     * wants anyway.
+     */
+    private fun refreshTrafficUsage() {
+        val view = trafficUsageView ?: return
+        if (!CarPlayBackgroundSession.hasSession()) {
+            view.visibility = View.GONE
+            return
+        }
+        val (rx, tx) = trafficUsage.sample()
+        view.visibility = View.VISIBLE
+        view.text = getString(R.string.traffic_usage_session, trafficUsage.format(tx), trafficUsage.format(rx))
     }
     private fun authorizeClusterRouting() {
         val app = applicationContext

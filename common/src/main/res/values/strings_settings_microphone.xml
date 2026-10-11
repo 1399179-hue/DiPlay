@@ -4,4 +4,5 @@
     <string name="settings_microphone_gain">Microphone gain</string>
     <string name="settings_microphone_gain_hint">Scales what the car microphone sends to the iPhone. Raise it if callers hear you faintly; lower it if the sound distorts or the iPhone’s own gain control pulls the level back. Applies on the next connection.</string>
     <string name="settings_microphone_gain_value">%1$d%%</string>
+    <string name="traffic_usage_session">Session data: sent %1$s · received %2$s</string>
 </resources>

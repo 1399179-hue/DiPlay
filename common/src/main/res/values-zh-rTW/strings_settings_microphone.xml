@@ -4,4 +4,5 @@
     <string name="settings_microphone_gain">麥克風增益</string>
     <string name="settings_microphone_gain_hint">調整車機麥克風傳送給 iPhone 的音量。對方聽不清楚時調高；聲音失真或 iPhone 自動降低音量時調低。下次連線時生效。</string>
     <string name="settings_microphone_gain_value">%1$d%%</string>
+    <string name="traffic_usage_session">本次連線流量：傳送 %1$s · 接收 %2$s</string>
 </resources>
