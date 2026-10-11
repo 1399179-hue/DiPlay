@@ -29,6 +29,9 @@ class TrafficUsage {
         sessionTxBytes.set(0L)
     }
 
+    /** True once [start] has taken a baseline for the current session. */
+    fun hasStarted(): Boolean = baselineRxBytes.get() >= 0L
+
     /**
      * Folds the live counters into the session totals and returns the sample.
      *
