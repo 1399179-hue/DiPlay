@@ -47,21 +47,52 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Generate an ephemeral signing keystore
+      # A fixed release key, so a new build installs over the previous one. Without it every run
+      # generated a fresh ephemeral key and Android refused the update with
+      # INSTALL_FAILED_UPDATE_INCOMPATIBLE, forcing an uninstall (and losing settings and CarPlay
+      # pairing) before each install. The four RELEASE_KEYSTORE_* secrets hold one keystore.
+      # If they are absent the build still succeeds, signed with an ephemeral key, and says so.
+      - name: Prepare the release signing key
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          keystore="${RUNNER_TEMP}/merged-release.jks"
-          keytool -genkeypair \
-            -keystore "${keystore}" \
-            -storepass merged-build -keypass merged-build \
-            -alias merged -keyalg RSA -keysize 2048 -validity 30 \
-            -dname "CN=DiPlay merge build"
+          if [[ -z "${RELEASE_KEYSTORE_BASE64:-}" ]]; then
+            echo "::warning::No RELEASE_KEYSTORE_BASE64 secret. Falling back to an ephemeral key: uninstall the previous build before installing this one, or add the four RELEASE_KEYSTORE_* secrets."
+            keystore="${RUNNER_TEMP}/merged-release.jks"
+            keytool -genkeypair \
+              -keystore "${keystore}" \
+              -storepass merged-build -keypass merged-build \
+              -alias merged -keyalg RSA -keysize 2048 -validity 30 \
+              -dname "CN=DiPlay merge build"
+            {
+              echo "ANDROID_KEYSTORE_PATH=${keystore}"
+              echo "ANDROID_KEYSTORE_PASSWORD=merged-build"
+              echo "ANDROID_KEY_ALIAS=merged"
+              echo "ANDROID_KEY_PASSWORD=merged-build"
+            } >> "${GITHUB_ENV}"
+            exit 0
+          fi
+          for name in ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::RELEASE_KEYSTORE_BASE64 is set but ${name} is not"
+              exit 1
+            fi
+          done
+          keystore="${RUNNER_TEMP}/diplay-release.jks"
+          printf '%s' "${RELEASE_KEYSTORE_BASE64}" | base64 --decode > "${keystore}"
+          keytool -list -keystore "${keystore}" \
+            -storepass "${ANDROID_KEYSTORE_PASSWORD}" -alias "${ANDROID_KEY_ALIAS}" > /dev/null
           {
             echo "ANDROID_KEYSTORE_PATH=${keystore}"
-            echo "ANDROID_KEYSTORE_PASSWORD=merged-build"
-            echo "ANDROID_KEY_ALIAS=merged"
-            echo "ANDROID_KEY_PASSWORD=merged-build"
+            echo "ANDROID_KEYSTORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}"
+            echo "ANDROID_KEY_ALIAS=${ANDROID_KEY_ALIAS}"
+            echo "ANDROID_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}"
           } >> "${GITHUB_ENV}"
+          echo "Signing with the fixed release key (alias ${ANDROID_KEY_ALIAS})."
 
       # DiPlayBootstrap.ensure() needs assets/offline-mfi/{identity.pk8,certificate.p7b} at
       # runtime or the UI shows "无法加载 CarPlay 认证". mobile/build.gradle.kts only adds them
