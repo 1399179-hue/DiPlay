@@ -29,7 +29,7 @@ class HomeCompactLayoutTest {
     private fun verifyCompactArrangement(landscape: Boolean) {
         val controller = Robolectric.buildActivity(DiPlayActivity::class.java,
             android.content.Intent(android.content.Intent.ACTION_MAIN)
-                .addCategory(android.intent.category.LAUNCHER)
+                .addCategory("android.intent.category.LAUNCHER")
                 .putExtra("page", "home")).setup()
         val activity = controller.get()
         val root = activity.window.decorView
@@ -74,7 +74,7 @@ class HomeCompactLayoutTest {
     private fun homeIsCompact(multiWindow: Boolean): Boolean {
         val activity = Robolectric.buildActivity(DiPlayActivity::class.java,
             android.content.Intent(android.content.Intent.ACTION_MAIN)
-                .addCategory(android.intent.category.LAUNCHER)
+                .addCategory("android.intent.category.LAUNCHER")
                 .putExtra("page", "home")).setup().get()
         shadowOf(activity).setInMultiWindowMode(multiWindow)
         ReflectionHelpers.callInstanceMethod<Unit>(activity, "render")
