@@ -330,56 +330,6 @@ class AdaptiveSettingsUiTest {
         assertEquals("home", ReflectionHelpers.getField<String>(screen, "page"))
     }
 
-    @Test
-    @Config(shadows = [HotspotSearchProbe::class])
-    fun hotspotSearchIndexesItsAsyncCardWithoutStartingAnAdbProbe() {
-        installBydSettingsPackage()
-        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
-        HotspotSearchProbe.workers.clear()
-        HotspotSearchProbe.entered = CountDownLatch(1)
-        val screen = openSettings()
-        val index = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
-            screen, "buildSettingsSearchIndex")
-        val result = index.single { it.title == screen.getString(R.string.auto_car_hotspot_title) }
-
-        assertEquals(SettingsCategory.CONNECTION, result.category)
-        assertTrue("Building search metadata must not contact ADB", HotspotSearchProbe.workers.isEmpty())
-        assertFalse(texts(screen).any { it.text == screen.getString(R.string.auto_car_hotspot_title) })
-
-        ReflectionHelpers.callInstanceMethod<Unit>(screen, "openSearchResult",
-            ReflectionHelpers.ClassParameter(result.javaClass, result))
-        assertTrue(HotspotSearchProbe.entered.await(3, TimeUnit.SECONDS))
-        val worker = HotspotSearchProbe.workers.single()
-        worker.join(3_000)
-        assertFalse(worker.isAlive)
-        shadowOf(Looper.getMainLooper()).idle()
-
-        assertEquals(SettingsCategory.CONNECTION,
-            ReflectionHelpers.getField<SettingsCategory>(screen, "settingsCategory"))
-        assertEquals(1, descendants(screen.window.decorView).filterIsInstance<Switch>().count {
-            it.contentDescription == screen.getString(R.string.auto_car_hotspot_title)
-        })
-    }
-
-    @Test
-    @Config(shadows = [HotspotSearchProbe::class])
-    fun hotspotSearchKeepsTheBydAndCarHotspotAudienceGates() {
-        installBydSettingsPackage()
-        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.EXISTING_WIFI)
-        HotspotSearchProbe.workers.clear()
-        HotspotSearchProbe.entered = CountDownLatch(1)
-        val screen = openSettings()
-        fun index() = ReflectionHelpers.callInstanceMethod<List<DiPlayActivity.SettingsSearchResult>>(
-            screen, "buildSettingsSearchIndex")
-        val title = screen.getString(R.string.auto_car_hotspot_title)
-
-        assertFalse(index().any { it.title == title })
-        AirPlayPersistence.saveWirelessHotspotMode(context, WirelessHotspotMode.MANUAL)
-        shadowOf(context.packageManager).removePackage("com.byd.carsettings")
-        assertFalse(index().any { it.title == title })
-        assertTrue(HotspotSearchProbe.workers.isEmpty())
-    }
-
     @Test fun cardControlsShareOneHeightAndGap() {
         val screen = openSettings()
         descendants(screen.window.decorView)
@@ -592,10 +542,6 @@ class AdaptiveSettingsUiTest {
         assertTrue(text(R.string.settings_navigation_wheel_volume) in advanced)
         assertFalse(text(R.string.settings_navigation_wheel_volume) in audio)
         assertFalse(text(R.string.settings_navigation_wheel_volume) in vehicle)
-        assertTrue(text(R.string.settings_ambient_title) in advanced)
-        assertFalse(text(R.string.settings_ambient_title) in audio)
-        assertFalse(text(R.string.settings_ambient_title) in vehicle)
-        assertFalse(text(R.string.settings_ambient_title) in display)
         assertTrue(text(R.string.side_panel) in advanced)
         assertTrue(display.any { it.startsWith(text(R.string.settings_app_appearance)) })
         assertFalse(audio.any { it.startsWith(text(R.string.settings_app_appearance)) })

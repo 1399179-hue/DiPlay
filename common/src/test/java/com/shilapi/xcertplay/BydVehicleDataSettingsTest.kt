@@ -188,16 +188,15 @@ class BydVehicleDataSettingsTest {
         assertTrue(texts().any { it.text == activity.getString(R.string.probe_vehicle_data_again) })
     }
 
-    @Test fun clusterSongSwitchStaysInTheBydNavigationSectionOnly() {
+    @Test fun clusterSongSwitchLivesOnlyUnderAdvancedVehicleData() {
         shadowOf(context.packageManager).installPackage(PackageInfo().apply { packageName = "com.byd.amapservice" })
         openSettings()
+        // The BYD navigation card was removed; the switch is reachable only through Advanced.
         openCategory(R.string.settings_navigation)
-
-        assertTrue(texts().any { it.text == activity.getString(R.string.byd_navigation) })
-        assertEquals(1, switches().count { it.contentDescription == activity.getString(R.string.cluster_song) })
+        assertFalse(texts().any { it.text == activity.getString(R.string.byd_navigation) })
         openCategory(R.string.settings_advanced)
         texts().single { it.text == activity.getString(R.string.advanced_vehicle_data) }.performClick()
-        assertEquals(0, switches().count { it.contentDescription == activity.getString(R.string.cluster_song) })
+        assertEquals(1, switches().count { it.contentDescription == activity.getString(R.string.cluster_song) })
     }
 
     @Test fun withoutBydNavigationTheClusterSongSwitchIsUnderAdvancedVehicleData() {
