@@ -210,6 +210,11 @@ internal class ClusterMapPresentation(
             if (name == null) {
                 // Never replace a missing 5.1 side layer with a full-screen display.
                 if (DiLink51ClusterLayout.supported()) return null
+                // A Geely/ECARX head unit publishes its cluster under a vendor uniqueId, not a DiLink
+                // display name, so the DiLink classifiers below never match it. GeelyClusterDisplayTargets
+                // finds it and GeelyClusterDisplayControl reveals it; only one of the two families can
+                // match on a given car, so trying Geely after DiLink is unambiguous.
+                GeelyClusterDisplayTargets.find(context)?.let { return it.display }
                 return displays.firstOrNull { display ->
                     val size = sizeOf(display)
                     DiLink4ClusterDisplay.accepts(display.name, size.x, size.y)

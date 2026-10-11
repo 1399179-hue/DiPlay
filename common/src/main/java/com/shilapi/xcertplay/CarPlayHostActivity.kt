@@ -1095,9 +1095,14 @@ class CarPlayHostActivity : ComponentActivity() {
             appendLog("Cluster map: no cluster projection display among ${ClusterMapPresentation.describeDisplays(this)}")
             return
         }
+        // A Geely/ECARX cluster is hidden until the car's navigation projection is switched on;
+        // GeelyClusterDisplayControl is that switch, and release() restores the cluster only if this
+        // process is the one that took it.
+        val geelyProjection = GeelyClusterDisplayControl.acquire()
         val presentation = ClusterMapPresentation(this, display, theme) { surface -> runOnUiThread { onClusterSurface(surface) } }
         // The system dismisses a presentation when its display goes away; allow a new one on resume.
         presentation.setOnDismissListener {
+            if (geelyProjection) GeelyClusterDisplayControl.release()
             if (clusterPresentation === presentation) {
                 clusterPresentation = null
                 com.shilapi.xcertplay.hud.BydNavigationOutputs.setClusterMapShown(false)
@@ -1113,6 +1118,7 @@ class CarPlayHostActivity : ComponentActivity() {
             Log.i(ClusterMapPresentation.TAG, "cluster presentation shown display=${display.displayId} name=${display.name}")
             appendLog("Cluster map: presentation shown display=${display.displayId} name=${display.name}")
         } catch (error: RuntimeException) {
+            if (geelyProjection) GeelyClusterDisplayControl.release()
             Log.w(ClusterMapPresentation.TAG, "cluster presentation failed", error)
             appendLog("Cluster map: presentation failed ${error.javaClass.simpleName}: ${error.message}")
         }
