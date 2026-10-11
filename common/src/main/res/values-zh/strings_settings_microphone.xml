@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Microphone capture gain, ported from xcertplay-nomfi. -->
+    <string name="settings_microphone_gain">麦克风增益</string>
+    <string name="settings_microphone_gain_hint">调节车机麦克风发送给 iPhone 的音量。对方听不清时调高；声音失真或 iPhone 自动回退音量时调低。下次连接时生效。</string>
+    <string name="settings_microphone_gain_value">%1$d%%</string>
+</resources>

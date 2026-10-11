@@ -12,9 +12,9 @@ class AppAppearanceTest {
 
     @After fun resetRuntime() = AppAppearanceRuntime.resetForTest()
 
-    @Test fun stableKeysRoundTripAndUnknownValuesDefaultToDark() {
-        assertEquals(AppAppearance.DARK, AppAppearance.fromKey(null))
-        assertEquals(AppAppearance.DARK, AppAppearance.fromKey("future-value"))
+    @Test fun stableKeysRoundTripAndUnknownValuesDefaultToLight() {
+        assertEquals(AppAppearance.LIGHT, AppAppearance.fromKey(null))
+        assertEquals(AppAppearance.LIGHT, AppAppearance.fromKey("future-value"))
         AppAppearance.entries.forEach { appearance ->
             assertEquals(appearance, AppAppearance.fromKey(appearance.key))
         }

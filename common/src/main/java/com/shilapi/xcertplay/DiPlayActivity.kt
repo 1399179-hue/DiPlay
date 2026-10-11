@@ -63,6 +63,7 @@ import com.shilapi.xcertplay.media.AmbientColorMode
 import com.shilapi.xcertplay.media.AmbientColorSpeed
 import com.shilapi.xcertplay.media.AmbientMusicController
 import com.shilapi.xcertplay.media.AmbientMusicSettings
+import com.shilapi.xcertplay.media.MicrophoneGain
 import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.network.CarHotspotTethering
 import com.shilapi.xcertplay.network.WifiP2pChannels
@@ -1861,6 +1862,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 bufferPresets.indexOf(AirPlayPersistence.loadMediaBufferMillis(this)).coerceAtLeast(0)) {
                 AirPlayPersistence.saveMediaBufferMillis(this, bufferPresets[it])
             }
+            microphoneGainControl(card)
         }
         filteredSection(content, SettingsSection.NAVIGATION_WHEEL,
             getString(R.string.settings_navigation_wheel_volume), R.drawable.ic_dp_audio) { card ->
@@ -5590,6 +5592,25 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
         parent.addView(button, matchButton(0, 60)); parent.addView(space(12))
     }
+
+    /**
+     * Microphone capture gain. Built on the stepped values the gain actually offers so the label,
+     * the dialog choices and the persisted percent can never disagree; the change needs a new
+     * capture stream, so it is announced as applying on the next connection.
+     */
+    private fun microphoneGainControl(parent: LinearLayout) {
+        val steps = (MicrophoneGain.MIN_PERCENT..MicrophoneGain.MAX_PERCENT step MicrophoneGain.STEP_PERCENT).toList()
+        val current = steps.indexOf(AirPlayPersistence.loadMicrophoneGainPercent(this)).coerceAtLeast(0)
+        choice(
+            parent,
+            getString(R.string.settings_microphone_gain),
+            steps.map { getString(R.string.settings_microphone_gain_value, it) },
+            current,
+            reconnects = false,
+        ) { index -> AirPlayPersistence.saveMicrophoneGainPercent(this, steps[index]) }
+        parent.addView(label(getString(R.string.settings_microphone_gain_hint), 14, MUTED))
+    }
+
     private fun card() = column().apply { background = rounded(SURFACE, BORDER); setPadding(dp(24), dp(24), dp(24), dp(24)) }
     private fun column() = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }
     private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }

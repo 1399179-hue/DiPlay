@@ -39,7 +39,7 @@ class DiPlayPaletteTest {
             WaitingScreenColors.of(night = true),
         )
         assertEquals(
-            WaitingScreenColors(Color.rgb(233, 238, 246), Color.rgb(28, 28, 30), Color.rgb(90, 100, 116)),
+            WaitingScreenColors(Color.rgb(242, 242, 247), Color.rgb(29, 29, 31), Color.rgb(99, 99, 102)),
             WaitingScreenColors.of(night = false),
         )
     }

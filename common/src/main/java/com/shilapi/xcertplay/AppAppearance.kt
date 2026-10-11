@@ -11,7 +11,11 @@ enum class AppAppearance(val key: String) {
     AUTO("auto");
 
     companion object {
-        fun fromKey(key: String?): AppAppearance = entries.firstOrNull { it.key == key } ?: DARK
+        /**
+         * Apple's light blue/white chrome is the shipped default; a missing or unrecognised value
+         * resolves to it rather than to the legacy dark theme.
+         */
+        fun fromKey(key: String?): AppAppearance = entries.firstOrNull { it.key == key } ?: LIGHT
     }
 }
 

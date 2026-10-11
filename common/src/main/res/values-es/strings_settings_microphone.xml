@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Microphone capture gain, ported from xcertplay-nomfi. -->
+    <string name="settings_microphone_gain">Ganancia del micrófono</string>
+    <string name="settings_microphone_gain_hint">Ajusta lo que el micrófono del coche envía al iPhone. Súbela si te oyen con poca fuerza; bájala si el sonido se distorsiona o el iPhone reduce el nivel por sí solo. Se aplica en la próxima conexión.</string>
+    <string name="settings_microphone_gain_value">%1$d%%</string>
+</resources>

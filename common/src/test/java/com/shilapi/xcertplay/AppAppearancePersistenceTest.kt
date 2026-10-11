@@ -17,10 +17,10 @@ class AppAppearancePersistenceTest {
 
     @Before fun clearPreferences() = prefs.edit().clear().apply()
 
-    @Test fun freshInstallAndUnknownValuesDefaultToDark() {
-        assertEquals(AppAppearance.DARK, AirPlayPersistence.loadAppAppearance(context))
+    @Test fun freshInstallAndUnknownValuesDefaultToLight() {
+        assertEquals(AppAppearance.LIGHT, AirPlayPersistence.loadAppAppearance(context))
         prefs.edit().putString("app_appearance", "future-value").apply()
-        assertEquals(AppAppearance.DARK, AirPlayPersistence.loadAppAppearance(context))
+        assertEquals(AppAppearance.LIGHT, AirPlayPersistence.loadAppAppearance(context))
     }
 
     @Test fun allAppearancesRoundTripWithoutChangingOtherPreferences() {

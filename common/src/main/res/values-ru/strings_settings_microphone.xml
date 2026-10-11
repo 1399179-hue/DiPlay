@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Microphone capture gain, ported from xcertplay-nomfi. -->
+    <string name="settings_microphone_gain">Усиление микрофона</string>
+    <string name="settings_microphone_gain_hint">Регулирует уровень, который микрофон автомобиля отправляет на iPhone. Повышайте, если вас плохо слышно; понижайте при искажениях или если iPhone сам снижает уровень. Применяется при следующем подключении.</string>
+    <string name="settings_microphone_gain_value">%1$d%%</string>
+</resources>
