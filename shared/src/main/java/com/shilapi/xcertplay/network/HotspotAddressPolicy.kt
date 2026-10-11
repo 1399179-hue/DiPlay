@@ -55,7 +55,16 @@ internal object HotspotAddressPolicy {
         return if (publishedIsIpv6) null else linkLocal
     }
 
+    /**
+     * True when the iPhone can dial this IPv4 address back on the hotspot link.
+     *
+     * Loopback, `0.0.0.0` and multicast can never be reached, so they are rejected. A
+     * `169.254/16` lease is deliberately *accepted*: it is still a plain unicast IPv4 address that
+     * iOS reaches over the same link, whereas the alternative - falling back to the interface's
+     * scoped `fe80::` - is an address iOS cannot route at all. Announcing `fe80::` leaves the
+     * session associated and then silent, with no TCP ever accepted, which is the failure this
+     * accepts a link-local lease to avoid.
+     */
     private fun usable(address: InetAddress): Boolean =
-        !address.isLoopbackAddress && !address.isAnyLocalAddress && !address.isLinkLocalAddress &&
-            !address.isMulticastAddress
+        !address.isLoopbackAddress && !address.isAnyLocalAddress && !address.isMulticastAddress
 }

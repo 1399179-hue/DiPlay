@@ -23,9 +23,20 @@ class HotspotAddressPolicyTest {
         assertEquals(
             ipv4,
             HotspotAddressPolicy.select(
-                listOf(address("127.0.0.1"), address("0.0.0.0"), address("169.254.11.4"), ipv4),
+                listOf(address("127.0.0.1"), address("0.0.0.0"), ipv4),
             ),
         )
+    }
+
+    @Test
+    fun aLinkLocalIpv4LeaseBeatsFallingBackToAnUnroutableScopedIpv6() {
+        // iOS cannot route a scoped fe80:: address, so announcing it leaves the session silent.
+        // A 169.254/16 lease is still unicast IPv4 on the same link, so it must win.
+        val lease = address("169.254.11.4")
+        val linkLocal = address("fe80::e0dc:ffff:fe5b:c6d1")
+
+        assertEquals(lease, HotspotAddressPolicy.select(listOf(linkLocal, lease)))
+        assertEquals(lease, HotspotAddressPolicy.select(listOf(lease)))
     }
 
     @Test
