@@ -33,6 +33,7 @@ internal class BluetoothAudioHandoff(
     @Volatile private var closed = false
     @Volatile private var suppressed = true
     private var lastDisconnectAt = 0L
+    private var disconnectFailures = 0
     private var unavailable = false
     private var playing = false
     private var playbackQueryUnavailable = false
@@ -68,6 +69,23 @@ internal class BluetoothAudioHandoff(
         val connected = proxy ?: return
         if (value) disconnectPeer() else restoreActive(connected)
     }
+
+    /**
+     * True when the disconnect is safe to issue.
+     *
+     * iPhone asks for `disableBluetooth` right after the Wi-Fi session is up, but on a wireless
+     * session the Bluetooth RFCOMM link is still the iAP2 control channel until the AirPlay tunnel
+     * takes over. On some stacks the A2DP disconnect tears that link down with it: the phone stops
+     * acknowledging iAP2, the session dies and is rebuilt every ~20 s. So hold the disconnect until
+     * the tunnel is carrying iAP2, and only suppress the profile until then.
+     */
+    @Synchronized fun setControlChannelMovedToTunnel(moved: Boolean) {
+        controlOnTunnel = moved
+        val connected = proxy ?: return
+        if (moved && suppressed) disconnectPeer()
+    }
+
+    @Volatile private var controlOnTunnel = false
 
     @Synchronized fun start() {
         if (closed || held) return
@@ -129,8 +147,17 @@ internal class BluetoothAudioHandoff(
         val profile = proxy ?: return
         try {
             val device = profile.connectedDevices.firstOrNull { it.address.equals(peer, true) && it.bondState == BluetoothDevice.BOND_BONDED } ?: return
+            if (!controlOnTunnel) {
+                report("Audio: Bluetooth music handoff deferred until iAP2 moves to the tunnel")
+                return
+            }
             val now = SystemClock.elapsedRealtime()
-            if (lastDisconnectAt != 0L && now - lastDisconnectAt < 500) return
+            // A2DP disconnect on some stacks also tears down the iAP2 RFCOMM link on the same peer,
+            // which the wireless session is still using: the phone stops acknowledging iAP2 and the
+            // session is rebuilt every ~20 s. Space the attempts out and stop after a few failures
+            // instead of retrying on every connection-state broadcast.
+            if (lastDisconnectAt != 0L && now - lastDisconnectAt < DISCONNECT_COOLDOWN_MILLIS) return
+            if (disconnectFailures >= DISCONNECT_MAX_ATTEMPTS) return
             lastDisconnectAt = now
             synchronized(leases) {
                 if (profile.javaClass.getMethod("disconnect", BluetoothDevice::class.java).invoke(profile, device) == true) {
@@ -139,6 +166,7 @@ internal class BluetoothAudioHandoff(
                 }
             }
         } catch (error: Exception) {
+            disconnectFailures += 1
             unavailable = true
             report("Audio: Bluetooth music handoff fallback: ${error.javaClass.simpleName}")
         }
@@ -204,5 +232,7 @@ internal class BluetoothAudioHandoff(
         const val STATE_NOT_PLAYING = 11
         const val ACTION_PLAYING = "android.bluetooth.a2dp-sink.profile.action.PLAYING_STATE_CHANGED"
         const val ACTION_CONNECTION = "android.bluetooth.a2dp-sink.profile.action.CONNECTION_STATE_CHANGED"
+        const val DISCONNECT_COOLDOWN_MILLIS = 30_000L
+        const val DISCONNECT_MAX_ATTEMPTS = 2
     }
 }

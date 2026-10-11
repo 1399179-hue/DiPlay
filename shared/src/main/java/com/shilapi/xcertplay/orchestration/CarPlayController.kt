@@ -1754,6 +1754,9 @@ class CarPlayController(
             wirelessTunnelReady.set(true)
         }
         wirelessConnectionProof.authenticated(generation)
+        // The Bluetooth RFCOMM link is no longer the iAP2 channel, so the audio handoff can now
+        // safely disconnect A2DP without taking the control link down with it.
+        factoryBluetoothGuard?.setControlChannelMovedToTunnel(true)
         debugLog("wireless iAP2 tunnel ready; handoffRequested=${wirelessHandoffRequested.get()}")
         maybeCompleteWirelessHandoff()
     }
