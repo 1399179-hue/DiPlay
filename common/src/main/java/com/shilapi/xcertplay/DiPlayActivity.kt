@@ -152,9 +152,12 @@ internal object SettingsInformationArchitecture {
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
 class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private val handler = Handler(Looper.getMainLooper())
-    private var appNight = true
+    // The placeholder chrome before the first refreshAppearance(). It mirrors AppAppearance's own
+    // default so the first appearance check does not see a spurious change and repaint the page the
+    // driver is already looking at (for example on returning from the ADB permission dialog).
+    private var appNight = AppAppearance.fromKey(null) == AppAppearance.DARK
     override val currentAppNight: Boolean get() = appNight
-    private var palette = DiPlayPalette.DARK
+    private var palette = DiPlayPalette.of(appNight)
     private var appearanceObserverRemoval: (() -> Unit)? = null
     private var appearanceUpdatesResumed = false
     private var appearanceRenderPending = false

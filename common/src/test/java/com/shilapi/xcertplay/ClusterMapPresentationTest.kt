@@ -74,8 +74,8 @@ class ClusterMapPresentationTest {
         assertTrue(video is android.view.SurfaceView)
         val background = label.background as android.graphics.drawable.ColorDrawable
         assertEquals(255, android.graphics.Color.alpha(background.color))
-        // DiPlay's dark theme (the default) gives a black placeholder.
-        assertEquals(android.graphics.Color.BLACK, background.color)
+        // The shipped default is DiPlay's light theme, so the placeholder is the grouped background.
+        assertEquals(android.graphics.Color.rgb(242, 242, 247), background.color)
         assertEquals(1f, video.alpha, 0.001f)
         presentation.setStreamActive(true)
         assertEquals(1f, video.alpha, 0.001f)
