@@ -65,6 +65,11 @@ internal object CarPlayMediaKeys {
     private var appContext: Context? = null
     // carlito | The independent bridge owns all OEM input implementation and interception.
     @Volatile private var bridgeInput: VehicleSteeringClient? = null
+    // On an ECARX/Geely head unit without the separate bridge APK the wheel keys still exist: they
+    // are CAN frames the vehicle maps to vendor codes, so no Android KeyEvent ever arrives. The
+    // OneOS input service is the only channel that sees them, and this listens to it passively.
+    @Volatile private var oneOsWheelInput: GeelySteeringWheelInputChannel? = null
+    @Volatile private var lastOneOsInputDiagnostics = "oneOs INACTIVE"
     // carlito | One shared steering lease; volume keys are added only while map zoom is active.
     private var bridgeBaseKeys = intArrayOf()
     private val bridgeZoom = WheelZoomKeys()
@@ -240,6 +245,8 @@ internal object CarPlayMediaKeys {
             steeringGeneration++
             bridgeInput?.let { lastGeelyInputDiagnostics = it.diagnostics(); it.close() }
             bridgeInput = null
+            oneOsWheelInput?.let { lastOneOsInputDiagnostics = it.diagnostics(); it.close() }
+            oneOsWheelInput = null
         } else {
             if (bridgeInput == null) {
                 val generation = ++steeringGeneration
@@ -253,6 +260,23 @@ internal object CarPlayMediaKeys {
                 ?: intArrayOf(200085, 200087, 200088, 200231, 210005, 210006)
             // Learning is a passive observation; playback only uses acknowledged interception.
             updateBridgeKeys()
+        }
+        // Prefer the bridge when it is installed; otherwise listen to OneOS directly. Both funnel
+        // into onGeelySteeringKey, so the routing below is identical either way.
+        val bridgeInstalled = appContext?.let(VehicleSteeringClient::installed) == true
+        val wantOneOs = useGeelyInput && !bridgeInstalled &&
+            appContext?.let(GeelySteeringWheelInputChannel::isAvailable) == true
+        if (wantOneOs) {
+            if (oneOsWheelInput == null) {
+                val generation = ++steeringGeneration
+                oneOsWheelInput = GeelySteeringWheelInputChannel(appContext!!) { event ->
+                    onGeelySteeringKey(event, generation, source = "oneos")
+                }.also { it.setEnabled(true) }
+            }
+        } else if (oneOsWheelInput != null) {
+            lastOneOsInputDiagnostics = oneOsWheelInput!!.diagnostics()
+            oneOsWheelInput!!.close()
+            oneOsWheelInput = null
         }
         keyLogMonitor?.let { lastKeyLogDiagnostics = it.diagnostics(); it.close() }; keyLogMonitor = null
         val generation = ++monitorGeneration
@@ -409,10 +433,13 @@ internal object CarPlayMediaKeys {
         val permitted = appContext?.checkSelfPermission(android.Manifest.permission.READ_LOGS) == android.content.pm.PackageManager.PERMISSION_GRANTED
         "systemLogAccess=$permitted\n" + SteeringLogAccess.diagnostics() + "\n" +
             (bridgeInput?.diagnostics() ?: "last: $lastGeelyInputDiagnostics") + "\n" +
+            (oneOsWheelInput?.diagnostics() ?: "last: $lastOneOsInputDiagnostics") + "\n" +
             (keyLogMonitor?.diagnostics() ?: "last: $lastKeyLogDiagnostics") + "\n" + observedKeys.joinToString("\n")
     }
 
-    fun steeringDirectReady(): Boolean = synchronized(this) { bridgeInput?.ready() == true }
+    fun steeringDirectReady(): Boolean = synchronized(this) {
+        bridgeInput?.ready() == true || oneOsWheelInput?.ready() == true
+    }
 
     private fun onObservedKey(key: SteeringObservedKey) {
         val learner = synchronized(this) {

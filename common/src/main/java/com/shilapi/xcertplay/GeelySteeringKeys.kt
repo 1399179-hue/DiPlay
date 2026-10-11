@@ -49,4 +49,20 @@ internal object GeelySteeringKeyCodes {
     fun enabledByDefault(): Boolean = Build.MODEL.orEmpty().uppercase().let { model ->
         listOf("G636", "FX11", "KX11", "G733", "L6").any(model::contains)
     }
+
+    /**
+     * The full stock listener table the OneOS input service dispatches to.
+     *
+     * The vehicle only delivers a key to a listener that registered for its exact vendor code, so
+     * registering a subset silently drops presses. This mirrors the table the factory build
+     * registers; the listener stays passive and never asks OneOS to intercept a key.
+     */
+    fun oneOsListenerCodes(): IntArray = ((0..283).toList() + intArrayOf(
+        110_001, 110_002, 110_003, 110_004, 110_005, 110_006, 110_007, 110_008, 110_009, 110_010,
+        200_003, 200_004, 200_005, 200_006, 200_024, 200_025, 200_082, 200_085, 200_087, 200_088,
+        200_110, 200_164, 200_176, 200_231, 200_400, 200_600,
+        210_001, 210_002, 210_003, 210_004, 210_005, 210_006, 210_007, 210_008, 210_009, 210_010,
+        210_020, 300_001, 300_002, 300_003, 300_005, 300_010, 300_020, 300_021, 300_022, 300_023,
+        300_030, 300_031,
+    ).toList()).distinct().toIntArray()
 }
