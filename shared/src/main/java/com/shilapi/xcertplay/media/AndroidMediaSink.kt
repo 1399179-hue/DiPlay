@@ -2466,7 +2466,10 @@ private class AudioRenderer(
             previous?.let { (current - it) and 0xffff_ffffL }
         }
         val queuedFrames = playbackHeadFrames?.let { (totalWrittenFrames - it).coerceAtLeast(0L) }
-        val line = "audio stats audioType=${format.audioType} channel=$mappedChannel " +
+        // "PHONE " marks the iPhone's own log lines, which the report drops, and it dropped every
+        // call's playback line with it (#647).
+        val channelName = if (mappedChannel == AudioChannel.PHONE) "CALL" else mappedChannel?.name
+        val line = "audio stats audioType=${format.audioType} channel=$channelName " +
             "routeType=${currentTrack?.routedDevice?.type ?: -1} routeDevice=${currentTrack?.routedDevice?.id ?: -1} codec=${format.codec} " +
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
             "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +

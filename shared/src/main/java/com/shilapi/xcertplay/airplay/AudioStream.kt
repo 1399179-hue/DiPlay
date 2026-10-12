@@ -26,6 +26,13 @@ data class AudioFormat(
      * handset sends, so the media buffer folds this value in as a floor.
      */
     val latencyMs: Int = 0,
+    /**
+     * The rate of the stream's RTP timestamps. Opus is always decoded at 48 kHz, but audioFormat
+     * 0x10000000, 0x20000000 and 0x40000000 count at 16, 24 and 48 kHz (see
+     * [MicrophoneConfig.opusClockRate]). The /feedback `sampleTime` must move on this clock, not the
+     * 48 kHz decode rate, or a 16 kHz call stream runs 3x ahead of the audio that arrived (#473).
+     */
+    val rtpClockRate: Int = sampleRate,
 )
 
 /**
@@ -227,7 +234,10 @@ object AudioStreamCodec {
         val isOpus = (bits and OPUS_MONO) != 0L
         val pcm = PCM_FORMAT[bits]
         return when {
-            isOpus -> AudioFormat(AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType)
+            isOpus -> AudioFormat(
+                AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType,
+                rtpClockRate = MicrophoneConfig.opusClockRate(bits),
+            )
             isAacLc -> AudioFormat(
                 AudioCodecKind.AAC_LC,
                 if ((bits and AAC_LC_48K_STEREO) != 0L) 48_000 else 44_100,

@@ -89,14 +89,24 @@ class UsbAutoConfirmService : AccessibilityService() {
             "com.android.systemui.usb.UsbConfirmActivity",
         )
         private val CONFIRM_LABELS = setOf("确定", "允许", "OK", "Allow", "Confirm")
+        /**
+         * Both USB activities extend AlertActivity, which reports its window to accessibility as
+         * android.app.Dialog rather than by activity name, on Android 7 to 14 alike. So the USB
+         * dialog never matched, and auto-confirm did nothing even when the head unit showed the
+         * standard UsbPermissionActivity (#409). Other systemui dialog activities, such as
+         * screen-capture consent, report the same name, so [isTargetPrompt] must also find a USB
+         * device — which it does by requiring "USB".
+         */
+        private const val ALERT_ACTIVITY_CLASS = "android.app.Dialog"
+        private val USB_DEVICE_WORDS = Regex("USB|iPhone|iPad", RegexOption.IGNORE_CASE)
 
         internal fun isSystemUsbWindow(pkg: String?, className: String?): Boolean =
-            pkg in SYSTEM_PACKAGES && className in USB_ACTIVITIES
+            pkg in SYSTEM_PACKAGES && (className in USB_ACTIVITIES || className == ALERT_ACTIVITY_CLASS)
 
         internal fun isTargetPrompt(text: String, appLabel: String): Boolean =
             appLabel.isNotBlank() &&
                 Regex("(?<![\\p{L}\\p{N}_])${Regex.escape(appLabel)}(?![\\p{L}\\p{N}_])", RegexOption.IGNORE_CASE)
-                    .containsMatchIn(text) && text.contains("USB", ignoreCase = true)
+                    .containsMatchIn(text) && USB_DEVICE_WORDS.containsMatchIn(text)
 
 
         fun isEnabled(context: Context): Boolean {
