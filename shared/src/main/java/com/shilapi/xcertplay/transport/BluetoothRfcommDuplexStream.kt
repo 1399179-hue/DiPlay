@@ -52,6 +52,7 @@ class BluetoothRfcommDuplexStream internal constructor(
     private var failure: IOException? = null
     private var readCalls = 0L
     private var receivedBytes = 0L
+    private var flushAllowed = true
 
     // Acquire both streams before starting any reader or iAP2 protocol thread. Android getters
     // have platform-nullability, and some vendor sockets return null after connect() succeeds.
@@ -75,7 +76,7 @@ class BluetoothRfcommDuplexStream internal constructor(
             }
             try {
                 output.write(data)
-                output.flush()
+                if (flushAllowed) flushOutput()
             } catch (error: Exception) {
                 val io = BluetoothRfcommStreamException(
                     BluetoothRfcommStreamException.Operation.WRITE,
@@ -317,4 +318,25 @@ class BluetoothRfcommDuplexStream internal constructor(
         private const val NANOS_PER_MILLISECOND = 1_000_000L
         private val EMPTY = ByteArray(0)
     }
+
+    /**
+     * Android's socket flush polls the TIOCOUTQ ioctl. A Ford SYNC+ (i.MX8, Android 8.1) refuses
+     * that ioctl with EACCES although the write itself succeeded (#582). The bytes are already
+     * queued, so this socket stops flushing instead of failing the link.
+     */
+    private fun flushOutput() {
+        try {
+            output.flush()
+        } catch (error: IOException) {
+            if (!refusedIoctl(error)) throw error
+            flushAllowed = false
+            report("Bluetooth RFCOMM flush refused by the head unit; sending without flush")
+        }
+    }
 }
+
+private val PERMISSION_ERRNO = Regex("\\bE(ACCES|PERM)\\b")
+
+/** A permission refusal as android.system.ErrnoException words it: "ioctl failed: EACCES (…)". */
+internal fun refusedIoctl(error: Throwable): Boolean =
+    generateSequence(error) { it.cause }.take(8).any { it.message?.contains(PERMISSION_ERRNO) == true }
