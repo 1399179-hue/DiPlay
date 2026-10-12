@@ -24,11 +24,18 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#A6C8FF</item>
         <item name="android:windowBackground">@color/dialog_background_dark</item>
+        <!-- Vendor skins (LYNK OS) restyle the framework alert list so item text can render
+             near-invisible on our paper; pin every text role the framework draws for us. -->
+        <item name="android:textColorAlertDialogListItem">#E6EAF2</item>
+        <item name="android:textColor">#E6EAF2</item>
     </style>
     <style name="Theme.Xcertplay.Dialog.Light" parent="android:Theme.Material.Light.Dialog.Alert">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#0068D6</item>
         <item name="android:windowBackground">@color/dialog_background_light</item>
+        <!-- Same pinning for the light paper: the item rows must stay dark on it. -->
+        <item name="android:textColorAlertDialogListItem">#1C1C1E</item>
+        <item name="android:textColor">#1C1C1E</item>
     </style>
     <style name="Theme.AdbCluster" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
