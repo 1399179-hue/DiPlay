@@ -152,6 +152,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private var connectionPanel: View? = null
     private var wifiRecoveryButton: View? = null
+    private var carWifiHelp: View? = null
     private var reconnectAttempts = 0
     private val siriKey = WheelSiriKey()
     private val siriKeyPresses = WheelKeyPresses()
@@ -292,6 +293,52 @@ class CarPlayHostActivity : ComponentActivity() {
                 appendLog("Custom AirPlay icon updated")
             }
         }
+
+    /**
+     * The car Wi-Fi settings screen the recovery sent the driver to; its return tells the recovery
+     * whether the radio came up. `cancelled` is true when the driver backed out without enabling.
+     */
+    private var carWifiSettingsDestination: CarWifiSettings.Destination? = null
+    private val carWifiSettings =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            val destination = carWifiSettingsDestination
+            carWifiSettingsDestination = null
+            if (destination == null) return@registerForActivityResult
+            val resultCode = result.resultCode
+            appendLog(
+                "Car Wi-Fi settings action=${destination.label} returned=" +
+                    when (resultCode) {
+                        RESULT_OK -> "ok"
+                        RESULT_CANCELED -> "cancelled"
+                        else -> "other"
+                    },
+            )
+            carWifiEnableRecovery.onResult(
+                cancelled = destination == CarWifiSettings.Destination.ENABLE && resultCode != RESULT_OK,
+                currentGeneration = restartGeneration,
+            )
+        }
+    private val carWifiEnableRecovery by lazy {
+        CarWifiEnableRecovery(
+            launch = { launchCarWifiEnable() },
+            wifiEnabled = { com.shilapi.xcertplay.network.LynkTcamWifiReadiness.isWifiEnabled(this) ?: false },
+            restart = {
+                if (CarPlayBackgroundSession.isOwner(this)) restartCarPlay("car Wi-Fi enabled; retrying")
+            },
+            diagnostic = { appendLog(it) },
+        )
+    }
+
+    /** Tries the direct enable request first, then the settings screens; true when one started. */
+    private fun launchCarWifiEnable(): Boolean {
+        val destination = CarWifiSettings.requestEnable(
+            this,
+            launchForResult = { intent -> carWifiSettings.launch(intent) },
+            onDiagnostic = { appendLog(it) },
+        )
+        carWifiSettingsDestination = destination
+        return destination != null
+    }
 
     // The full-window viewport stays independent of the letterboxed SurfaceView dimensions.
     private var videoView: View? = null
@@ -983,6 +1030,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // The settings screen returns here with FLAG_ACTIVITY_REORDER_TO_FRONT, so this screen is
         // resumed, not recreated: refresh what that screen can change before it is used again.
         if (!menuOpen) loadConnectionSettings()
+        if (wirelessEnabled) carWifiEnableRecovery.onResume(restartGeneration)
         locationPermissionAvailable = hasFineLocationPermission()
         if (locationReportingEnabled && !locationPermissionAvailable && !menuOpen) {
             requestLocationPermission()
@@ -1469,6 +1517,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onPause() {
         hostAppearanceResumed = false
+        carWifiEnableRecovery.onPause()
         AppAppearanceRuntime.clearHost(this)
         nightModeController.pause()
         super.onPause()
@@ -1570,6 +1619,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // carlito | A background session deliberately retains its owner after the view is gone.
         // Preserve that owner's recovery; shutdown and ownership transfer cancel obsolete work.
         if (!CarPlayBackgroundSession.isOwner(this) || shuttingDown.get()) cancelReconnect()
+        carWifiEnableRecovery.close()
         resetSidePanel()
         releaseSidePanelEffects()
         hostAppearanceResumed = false
@@ -1662,6 +1712,13 @@ class CarPlayHostActivity : ComponentActivity() {
             gravity = Gravity.CENTER
         }
         panel.addView(instructions)
+        val carWifiHint = TextView(this).apply {
+            text = CarWifiSettings.helpText(this@CarPlayHostActivity)
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            carWifiHelp = this
+        }
+        panel.addView(carWifiHint)
         val recovery = Button(this).apply {
             text = getString(R.string.reset_carplay_wi_fi)
             isAllCaps = false
@@ -4851,17 +4908,40 @@ class CarPlayHostActivity : ComponentActivity() {
         val description = status.describe()
         setConnectionStage(description)
         when (status) {
-            is CarPlayStatus.Failed -> if (status.wifiResetRequired) {
-                wifiRecoveryButton?.visibility = View.VISIBLE
-            } else {
-                wifiRecoveryButton?.visibility = View.GONE
-                if (status.startupFailure != null) {
-                    if (startupFailureGeneration == controllerGeneration) return@report
-                    startupFailureGeneration = controllerGeneration
+            CarPlayStatus.WaitingForCarWifiEnabled -> {
+                carWifiHelp?.visibility = View.VISIBLE
+                if (wirelessEnabled) {
+                    carWifiEnableRecovery.onStatus(controllerGeneration, CarWifiEnableRecovery.Stage.WAITING)
                 }
-                reconnectAfterLoss(description, status.startupFailure)
             }
-            else -> Unit
+            CarPlayStatus.StartingHotspot,
+            CarPlayStatus.InitializingCarWifi,
+            CarPlayStatus.ConnectingCarWifi,
+            CarPlayStatus.WirelessActive,
+            -> {
+                carWifiHelp?.visibility = View.GONE
+                carWifiEnableRecovery.onStatus(controllerGeneration, CarWifiEnableRecovery.Stage.OTHER)
+            }
+            is CarPlayStatus.Failed -> {
+                val setupRequired = status.wifiResetRequired
+                if (setupRequired) carWifiHelp?.visibility = View.VISIBLE
+                carWifiEnableRecovery.onStatus(
+                    controllerGeneration,
+                    if (setupRequired) CarWifiEnableRecovery.Stage.FAILED
+                    else CarWifiEnableRecovery.Stage.OTHER,
+                )
+                if (status.wifiResetRequired) {
+                    wifiRecoveryButton?.visibility = View.VISIBLE
+                } else {
+                    wifiRecoveryButton?.visibility = View.GONE
+                    if (status.startupFailure != null) {
+                        if (startupFailureGeneration == controllerGeneration) return@report
+                        startupFailureGeneration = controllerGeneration
+                    }
+                    reconnectAfterLoss(description, status.startupFailure)
+                }
+            }
+            else -> carWifiEnableRecovery.onStatus(controllerGeneration, CarWifiEnableRecovery.Stage.OTHER)
         }
     }
 
@@ -5953,6 +6033,9 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.MfiReady -> getString(R.string.mfi_authentication_ready)
         CarPlayStatus.StartingHotspot -> getString(if (wirelessHotspotMode == WirelessHotspotMode.EXISTING_WIFI)
             R.string.existing_wifi_attaching else R.string.starting_wireless_hotspot)
+        CarPlayStatus.WaitingForCarWifiEnabled -> getString(R.string.turn_on_wi_fi_in_the_head_unit_s_settings_to_connect)
+        CarPlayStatus.InitializingCarWifi -> getString(R.string.starting_wireless_hotspot)
+        CarPlayStatus.ConnectingCarWifi -> getString(R.string.starting_airplay_service)
         is CarPlayStatus.HotspotReady -> getString(R.string.status_wireless_ready, ssid)
         CarPlayStatus.WaitingForPairedIphone -> getString(R.string.waiting_for_paired_iphone)
         CarPlayStatus.ConnectingBluetooth -> getString(R.string.connecting_bluetooth)

@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Every radio-state transition is reported once, so a "no signal" report can be told apart from a
  * radio that is genuinely switched off.
  */
-internal class LynkTcamWifiReadiness(
+class LynkTcamWifiReadiness(
     context: Context,
     private val onWaiting: () -> Unit = {},
     private val onDiagnostic: (String) -> Unit = {},
@@ -207,6 +207,23 @@ internal class LynkTcamWifiReadiness(
                 targetSdk in 1..28 &&
                 HeadUnitProfiles.current().id == HeadUnitProfiles.LYNK_03.id
         }
+
+        /** True when the radio is fully on; null when the state could not be read. */
+        fun isWifiEnabled(context: Context): Boolean? =
+            try {
+                when (context.applicationContext.getSystemService(WifiManager::class.java)?.wifiState) {
+                    WifiManager.WIFI_STATE_ENABLED -> true
+                    WifiManager.WIFI_STATE_DISABLED,
+                    WifiManager.WIFI_STATE_DISABLING,
+                    WifiManager.WIFI_STATE_ENABLING,
+                    -> false
+                    else -> null
+                }
+            } catch (_: SecurityException) {
+                null
+            } catch (_: Exception) {
+                null
+            }
     }
 }
 

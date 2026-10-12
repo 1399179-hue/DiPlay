@@ -118,6 +118,10 @@ sealed class CarPlayStatus {
     data object RequestingMfiPermission : CarPlayStatus()
     data object MfiReady : CarPlayStatus()
     data object StartingHotspot : CarPlayStatus()
+    /** The head unit's own Wi-Fi radio is off and the driver has to switch it on. */
+    data object WaitingForCarWifiEnabled : CarPlayStatus()
+    data object InitializingCarWifi : CarPlayStatus()
+    data object ConnectingCarWifi : CarPlayStatus()
     data class HotspotReady(
         val ssid: String,
         val band: String,
@@ -2329,6 +2333,8 @@ class CarPlayController(
                     onDiagnostic = { message -> debugLog("generation=$generation $message") },
                     savedSsid = config.manualHotspotSsid,
                     savedPassphrase = config.manualHotspotPassphrase,
+                    onWifiDisabled = { onStatus(CarPlayStatus.WaitingForCarWifiEnabled, generation) },
+                    onWifiInitializing = { onStatus(CarPlayStatus.InitializingCarWifi, generation) },
                 )
             } else {
                 ManualHotspotManager(
@@ -2969,6 +2975,12 @@ class CarPlayController(
             "STEP mfi/ready: MFi authentication provider is ready"
         CarPlayStatus.StartingHotspot ->
             "STEP wifi/ap: starting the wireless CarPlay access point"
+        CarPlayStatus.WaitingForCarWifiEnabled ->
+            "STEP wifi/car-radio: head unit Wi-Fi is off; waiting for the driver to enable it"
+        CarPlayStatus.InitializingCarWifi ->
+            "STEP wifi/car-radio: asking the platform to enable the head unit Wi-Fi"
+        CarPlayStatus.ConnectingCarWifi ->
+            "STEP wifi/car-radio: joining the car hotspot"
         is CarPlayStatus.HotspotReady ->
             "STEP wifi/ap-ready: backend=$backend ssid=$ssid band=$band " +
                 "channel=$channel bssid=$bssid address=$address"

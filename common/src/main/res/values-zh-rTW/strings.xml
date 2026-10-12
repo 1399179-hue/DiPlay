@@ -811,4 +811,8 @@
     <string name="settings_ambient_unavailable">唯讀檢查失敗：缺少既有 ADB 授權或支援的燈光介面。未儲存燈光設定。請停車後另行設定存取；本功能不啟用 ADB，也不請求授權。</string>
     <string name="settings_ambient_album_description">按封面取色並近似匹配原車可用色號。灰黑或無封面時使用全部31色；大面積白色封面可使用白色或冷白。</string>
     <string name="bluetooth_connections_not_real">此車機的系統藍牙回報「已連線」，但實際上沒有連到 iPhone：連一個不存在的服務也回報成功。這裡的藍牙由廠商自己的模組處理，App 無法使用，所以此車機無法使用無線 CarPlay。請嘗試使用 USB 連線。</string>
+    <string name="lynk_client_wifi_help">車載熱點與車機內建 Wi-Fi 是兩個開關。請保持熱點開啟；等待時 LYNK&amp;CO 會自動嘗試一次系統開啟確認或設定頁，若出現開啟確認，請允許。返回後若內建 Wi-Fi 已開啟，會繼續連線；等待已逾時則自動重試一次。取消或仍失敗時可點按鈕再試。沒有系統入口的韌體需透過原車系統或已授權的 USB 方式開啟。</string>
+    <string name="lynk_client_wifi_compat_help">連線時 LYNK&amp;CO 會自動嘗試開啟車機內建 Wi-Fi，隨後連線目前車載熱點，無需其他 App 或 USB 初始化。請保持車載熱點開啟；若出現連線網路的系統確認，請允許。初始化失敗時請儲存診斷記錄，返回首頁後可以重新連線。</string>
+    <string name="lynk_client_wifi_settings_unavailable">系統未提供可用的內建 Wi-Fi 設定或開啟入口。需透過原車系統或已授權的 USB 方式開啟內建 Wi-Fi，再返回 LYNK&amp;CO 重試；LYNK&amp;CO 會嘗試連線目前車載熱點。</string>
+    <string name="lynk_client_wifi_compat_settings_unavailable">系統沒有可用的 Wi-Fi 設定入口。請返回 LYNK&amp;CO 首頁點按連線，App 會嘗試內建初始化；若系統拒絕或逾時，請儲存本次診斷記錄。</string>
 </resources>

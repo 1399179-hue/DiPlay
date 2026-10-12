@@ -906,4 +906,8 @@
     <string name="turn_card_theme_night">始终夜间</string>
     <string name="settings_ambient_album_description">按封面取色并近似匹配原车可用色号。灰黑或无封面时使用全部31色；大面积白色封面可使用白色或冷白。</string>
     <string name="bluetooth_connections_not_real">此车机的系统蓝牙回报“已连接”，但实际上没有连到 iPhone：连一个不存在的服务也回报成功。这里的蓝牙由厂商自己的模块处理，应用无法使用，所以此车机无法使用无线 CarPlay。请尝试 USB 连接。</string>
+    <string name="lynk_client_wifi_help">车载热点与车机内置 Wi-Fi 是两个开关。请保持热点开启；等待时 LYNK&amp;CO 会自动尝试一次系统开启确认或设置页，若出现开启确认，请允许。返回后若内置 Wi-Fi 已开启，会继续连接；等待已超时则自动重试一次。取消或仍失败时可点按钮再试。没有系统入口的固件需通过原车系统或已授权的 USB 方式开启。</string>
+    <string name="lynk_client_wifi_compat_help">连接时 LYNK&amp;CO 会自动尝试开启车机内置 Wi-Fi，随后连接当前车载热点，无需其他应用或 USB 初始化。请保持车载热点开启；若出现连接网络的系统确认，请允许。初始化失败时请保存诊断日志，返回首页后可以重新连接。</string>
+    <string name="lynk_client_wifi_settings_unavailable">系统未提供可用的内置 Wi-Fi 设置或开启入口。需通过原车系统或已授权的 USB 方式开启内置 Wi-Fi，再返回 LYNK&amp;CO 重试；LYNK&amp;CO 会尝试连接当前车载热点。</string>
+    <string name="lynk_client_wifi_compat_settings_unavailable">系统没有可用的 Wi-Fi 设置入口。请返回 LYNK&amp;CO 首页点击连接，应用会尝试内置初始化；若系统拒绝或超时，请保存本次诊断日志。</string>
 </resources>
