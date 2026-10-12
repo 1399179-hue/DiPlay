@@ -52,11 +52,12 @@ class MicrophonePacketizerTest {
 
     @Test
     fun opusTimestampsCountInTheClockTheIphoneChose() {
-        // Siri asks for Opus 24 kHz (0x20000000) and calls for Opus 48 kHz (0x40000000); DiPlay still
-        // captures 20 ms at 48 kHz, but each packet moves the RTP clock by 20 ms of the chosen rate.
+        // Siri asks for Opus 24 kHz (0x20000000) and calls for Opus 48 kHz (0x40000000); 0x10000000
+        // counts at 16 kHz on the same rule. DiPlay still captures 20 ms at 48 kHz, but each packet
+        // moves the RTP clock by 20 ms of the chosen rate.
         assertEquals(24_000, MicrophoneConfig.opusClockRate(0x20000000L))
         assertEquals(48_000, MicrophoneConfig.opusClockRate(0x40000000L))
-        assertEquals(48_000, MicrophoneConfig.opusClockRate(0x10000000L))
+        assertEquals(16_000, MicrophoneConfig.opusClockRate(0x10000000L))
         assertEquals(48_000, MicrophoneConfig.opusClockRate(0L))
 
         val siri = config(AudioCodecKind.OPUS, opusClockRate = 24_000)
@@ -75,9 +76,15 @@ class MicrophonePacketizerTest {
 
     @Test
     fun callPacketsAndUnobservedFormatsKeepTheStandard960TickClock() {
-        for (format in listOf(0x40000000L, 0x10000000L, 0L, 0x60000000L)) {
+        for (format in listOf(0x40000000L, 0L, 0x60000000L)) {
             assertPacketSequence(format, 960)
         }
+    }
+
+    @Test
+    fun sixteenKhzOptusFormatCountsAt320Ticks() {
+        // 0x10000000 counts at 16 kHz, so a 20 ms packet moves the RTP clock by 320 (#473).
+        assertPacketSequence(0x10000000L, 320)
     }
 
     private fun assertPacketSequence(format: Long, expectedStep: Int) {

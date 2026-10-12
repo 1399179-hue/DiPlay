@@ -119,4 +119,21 @@ class MicrophoneCaptureStatsTest {
         assertEquals(4, reports.size)
         assertTrue(reports.all { it.length < 512 && '\n' !in it })
     }
+
+    @Test fun peakLevelDistinguishesSilenceFromASignal() {
+        val reports = mutableListOf<String>()
+        val stats = MicrophoneCaptureStats(config, reports::add) { 0 }
+        stats.started(15)
+        // 0x4000 little-endian = 16384, about -6 dBFS.
+        stats.level(byteArrayOf(0x00, 0x40))
+        stats.flush(ended = true)
+        assertTrue(reports.last().contains("peakDbfs=-6"))
+
+        reports.clear()
+        val silent = MicrophoneCaptureStats(config, reports::add) { 0 }
+        silent.started(15)
+        silent.level(ByteArray(8))
+        silent.flush(ended = true)
+        assertTrue(reports.last().contains("peakDbfs=silent"))
+    }
 }
