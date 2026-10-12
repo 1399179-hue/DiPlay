@@ -10,11 +10,19 @@ import android.os.Parcel
 import android.util.Log
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 /** Publishes CarPlay route arrows, distance and street to BYD's native windshield HUD. */
 internal object BydHudBridge {
     private const val BIND_BACKOFF_ATTEMPTS = 20
+
+    /**
+     * A head unit without the SOME/IP gateway (every Geely/Lynk build) answers bindService=false
+     * forever. After this many failed cycles the gateway is declared absent for the process
+     * lifetime: the 6 s timer stops waking the CPU and the log stays quiet.
+     */
+    private const val BIND_GIVE_UP_ATTEMPTS = 10
     private const val TAG = "DiPlay-BYD-HUD"
     private const val SOMEIP_PACKAGE = "com.ts.car.someip.service"
     private const val SOMEIP_CLASS = "com.ts.car.someip.service.manager.SomeIpServerService"
@@ -42,6 +50,8 @@ internal object BydHudBridge {
     private var showing = false
     private var lastSendResult: Int? = null
     private var failedBinds = 0
+    private var gatewayAbsent = false
+    private var sender: ScheduledExecutorService? = null
     private var icons: Map<Int, ByteArray>? = null
 
     // The gateway pings registered callbacks and drops registrations that do not answer like an AIDL stub.
@@ -77,9 +87,10 @@ internal object BydHudBridge {
         bindLocked()
         if (!senderStarted) {
             senderStarted = true
-            Executors.newSingleThreadScheduledExecutor { runnable ->
+            sender = Executors.newSingleThreadScheduledExecutor { runnable ->
                 Thread(runnable, "diplay-byd-hud").apply { isDaemon = true }
-            }.scheduleWithFixedDelay(::tick, BydHudProtocol.REPEAT_MILLIS, BydHudProtocol.REPEAT_MILLIS, TimeUnit.MILLISECONDS)
+            }
+            sender?.scheduleWithFixedDelay(::tick, BydHudProtocol.REPEAT_MILLIS, BydHudProtocol.REPEAT_MILLIS, TimeUnit.MILLISECONDS)
         }
     }
 
@@ -106,11 +117,22 @@ internal object BydHudBridge {
     }
 
     private fun tick() = synchronized(lock) {
+        if (gatewayAbsent) return
         if (binder == null && !binding) {
             // A gateway that is simply not installed answers bindService=false forever; retrying
             // every REPEAT_MILLIS on such a head unit only floods the log and wakes the CPU. Back
-            // off 20x (6 s) between attempts; a successful bind resets the back-off.
+            // off 20x (6 s) between attempts; a successful bind resets the back-off. After ten
+            // bind attempts spread over a minute the gateway is declared absent and this timer
+            // stops for good — no Geely/Lynk build has ever produced it.
             failedBinds += 1
+            if (failedBinds >= BIND_GIVE_UP_ATTEMPTS * BIND_BACKOFF_ATTEMPTS) {
+                gatewayAbsent = true
+                Log.i(TAG, "SOME/IP gateway absent after $BIND_GIVE_UP_ATTEMPTS bind attempts; HUD disabled for this session")
+                // The 300 ms timer has nothing left to do: stop it instead of spinning idle ticks.
+                runCatching { sender?.shutdownNow() }
+                sender = null
+                return
+            }
             if (failedBinds % BIND_BACKOFF_ATTEMPTS == 1) bindLocked()
             return
         }

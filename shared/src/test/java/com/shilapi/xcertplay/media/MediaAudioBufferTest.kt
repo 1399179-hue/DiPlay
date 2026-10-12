@@ -33,6 +33,16 @@ class MediaAudioBufferTest {
     }
 
     @Test
+    fun `prompt capacity never drops below one 500 ms burst`() {
+        // The Lynk 03 head unit granted ~300 ms of track on its small minBuffer; a burst after a
+        // gap drained it and navigation prompts underran. The capacity floor is 500 ms of audio,
+        // while the start level stays minimal so the prompt is not delayed (#647-class units).
+        val plan = MediaAudioBuffer.plan(false, 48_000, 2, minBufferBytes = 7_680, mediaMillis = 300)
+        assertEquals(96_000, plan.trackBufferBytes)
+        assertEquals(7_680, plan.startBytes)
+    }
+
+    @Test
     fun `unknown delay falls back to the default`() {
         assertEquals(MediaAudioBuffer.DEFAULT_MILLIS, MediaAudioBuffer.sanitize(250))
         assertEquals(57_600, MediaAudioBuffer.plan(true, 48_000, 2, 7_680, mediaMillis = 42).startBytes)
