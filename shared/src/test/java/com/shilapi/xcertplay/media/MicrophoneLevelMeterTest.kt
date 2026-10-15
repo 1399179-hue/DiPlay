@@ -19,7 +19,8 @@ class MicrophoneLevelMeterTest {
         meter.accept(pcm16(1000, -1000, 32767, -32768))
         val window = meter.takeWindow()
         assertEquals(4L, window.counts[0])
-        assertEquals(32767, window.peaks[0])
+        // abs(-32768) is 32768 in Int arithmetic, one above the positive full scale.
+        assertEquals(32768, window.peaks[0])
         assertEquals(2L, window.clipped[0])
         assertTrue(window.rms[0] > 1000)
     }

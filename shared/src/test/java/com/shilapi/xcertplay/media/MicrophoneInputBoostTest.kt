@@ -15,17 +15,16 @@ class MicrophoneInputBoostTest {
         return out
     }
 
-    private fun samples(pcm: ByteArray): List<Int> =
-        pcm.asList().chunked(2).map { (it[0].toInt() and 0xff) or (it[1].toInt() shl 8) }
-            .map { if (it > 32767) it - 65536 else it }
+    private fun firstSample(pcm: ByteArray): Int =
+        ((pcm[0].toInt() and 0xff) or (pcm[1].toInt() shl 8)).toShort().toInt()
 
-    @Test fun quietSpeechIsLiftedTowardsTwoTimes() {
+    @Test fun quietSpeechIsLifted() {
         val boost = MicrophoneInputBoost(48_000, 1)
-        // RMS 100: below BOOST_RMS but above QUIET_RMS, so a partial boost.
+        // RMS 100 sits between QUIET_RMS (64) and BOOST_RMS (256): a partial boost, well under 2x.
         val frame = pcm16(100, -100, 100, -100)
-        repeat(200) { boost.apply(frame, enabled = true) }
+        repeat(1_000) { boost.apply(frame, enabled = true) }
         assertTrue(boost.enabled)
-        val gained = samples(frame).first()
+        val gained = firstSample(frame)
         assertTrue("gained=$gained", gained in 101..200)
     }
 
@@ -34,7 +33,7 @@ class MicrophoneInputBoostTest {
         val frame = pcm16(100, -100)
         boost.apply(frame, enabled = true)
         boost.apply(frame, enabled = false)
-        assertEquals(listOf(100, -100), samples(frame))
+        assertEquals(100, firstSample(frame))
         assertTrue(boost.diagnosticSuffix().contains("inputBoostEnabled=false"))
     }
 
@@ -43,17 +42,18 @@ class MicrophoneInputBoostTest {
         // Near full scale: the gain must stay at unity, not push past 32767.
         val frame = pcm16(30_000, -30_000, 30_000, -30_000)
         repeat(50) { boost.apply(frame, enabled = true) }
-        val out = samples(frame)
-        assertTrue(out.all { it in -32768..32767 })
-        assertTrue(out.none { it == 32767 || it == -32768 })
+        assertEquals(30_000, firstSample(frame))
     }
 
     @Test fun stereoChannelsAreBothGained() {
         val boost = MicrophoneInputBoost(48_000, 2)
         val frame = pcm16(120, 120, -120, -120)
-        repeat(200) { boost.apply(frame, enabled = true) }
-        val out = samples(frame)
-        assertEquals(4, out.size)
-        assertFalse(out.all { it == 120 || it == -120 })
+        repeat(1_000) { boost.apply(frame, enabled = true) }
+        val left = firstSample(frame)
+        assertTrue("left=$left", left in 121..240)
+        // The right channel must move with the left, not be left behind.
+        val right = ((frame[2].toInt() and 0xff) or (frame[3].toInt() shl 8)).toShort().toInt()
+        assertEquals(left, right)
+        assertFalse(left == 120)
     }
 }

@@ -44,10 +44,11 @@ internal class MicrophoneInputBoost(private val sampleRate: Int, private val cha
             index += 2
         }
         val rms = sqrt(sumSquares / (pcm.size / 2))
-        val wanted = min(
-            (rms - QUIET_RMS).coerceIn(0.0, BOOST_RMS) / BOOST_RMS + 1.0,
-            if (peak == 0) 1.0 else (32767.0 / peak).coerceIn(1.0, MAX_GAIN),
-        )
+        // Unity at or below QUIET_RMS, rising linearly to MAX_GAIN at BOOST_RMS and above, but
+        // never so much that the loudest sample in this frame would clip.
+        val byLevel = ((rms - QUIET_RMS) / (BOOST_RMS - QUIET_RMS)).coerceIn(0.0, 1.0) + 1.0
+        val byHeadroom = if (peak == 0) 1.0 else (32767.0 / peak).coerceIn(1.0, MAX_GAIN)
+        val wanted = min(byLevel, byHeadroom)
         // Never raise the gain while the signal is already loud enough.
         gain = min(gain, wanted)
         if (wanted <= 1.0) return
