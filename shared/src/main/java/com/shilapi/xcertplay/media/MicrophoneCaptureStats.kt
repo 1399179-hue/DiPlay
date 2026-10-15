@@ -79,7 +79,9 @@ internal class MicrophoneCaptureStats(
         }
     }
 
-    fun restarted(attempt: Int) { emit("Microphone: recording restarted $metadata attempt=$attempt") }
+    fun restarted(attempt: Int, reason: String = "read-error") {
+        emit("Microphone: recording restarted $metadata reason=$reason attempt=$attempt")
+    }
 
     fun failure(stage: MicrophoneFailureStage, error: Throwable? = null, code: Int? = null) {
         emit(failureMessage(metadata, stage, error, code))
