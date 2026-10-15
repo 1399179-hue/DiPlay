@@ -147,7 +147,7 @@ object EthernetIpv6Codec {
         ipv6[IPV6_PAYLOAD_LENGTH_OFFSET] = (icmp.size ushr 8).toByte()
         ipv6[IPV6_PAYLOAD_LENGTH_OFFSET + 1] = icmp.size.toByte()
         ipv6[IPV6_NEXT_HEADER_OFFSET] = ICMPV6_NEXT_HEADER.toByte()
-        ipv6[IPV6_HOP_LIMIT_OFFSET] = 255
+        ipv6[IPV6_HOP_LIMIT_OFFSET] = 255.toByte()
         // Solicited responses go back to the requester's unicast address.
         System.arraycopy(requestedSource, 0, ipv6, IPV6_SOURCE_OFFSET, 16)
         System.arraycopy(requestedSource, 0, ipv6, IPV6_DESTINATION_OFFSET, 16)
