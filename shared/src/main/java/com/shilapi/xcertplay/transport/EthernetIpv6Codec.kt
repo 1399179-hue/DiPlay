@@ -151,6 +151,7 @@ object EthernetIpv6Codec {
         // Solicited responses go back to the requester's unicast address.
         System.arraycopy(requestedSource, 0, ipv6, IPV6_SOURCE_OFFSET, 16)
         System.arraycopy(requestedSource, 0, ipv6, IPV6_DESTINATION_OFFSET, 16)
+        icmp.copyInto(ipv6, IPV6_HEADER_BYTES)
         writeIcmpv6Checksum(ipv6)
         return build(sourceMac, destinationMac, ipv6)
     }
