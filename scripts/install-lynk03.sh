@@ -12,9 +12,10 @@ WIFI_HOST="${LYNK03_WIFI_HOST:-172.20.10.3}"
 WIFI_PORTS_DEFAULT="5555"
 
 if [[ -z "$APK" ]]; then
-  APK=$(ls -t "C:/Users/IT/.zcode/workspace/default/"DiPlay*-release*.apk 2>/dev/null | head -1 || true)
+  # Newest DiPlay .apk in the workspace root, whatever its tag suffix.
+  APK=$(ls -t "C:/Users/IT/.zcode/workspace/default/"DiPlay*.apk 2>/dev/null | head -1 || true)
   if [[ -z "$APK" ]]; then
-    echo "ERROR: no DiPlay*-release*.apk found in workspace; pass one as argument 1" >&2
+    echo "ERROR: no DiPlay*.apk found in workspace; pass one as argument 1" >&2
     exit 1
   fi
 fi
