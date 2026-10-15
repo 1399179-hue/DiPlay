@@ -23,10 +23,12 @@ class Ipv6NcmBridge(
     private val ncm: NcmUsbBridge,
     private val tun: ParcelFileDescriptor,
     private val hostMac: ByteArray,
+    private val linkLocal: ByteArray,
     private val onError: (Throwable) -> Unit,
 ) : Closeable {
     init {
         require(hostMac.size == EthernetIpv6Codec.MAC_BYTES) { "hostMac must be 6 bytes" }
+        require(linkLocal.size == 16) { "linkLocal must be 16 bytes" }
     }
 
     @Volatile
@@ -79,6 +81,13 @@ class Ipv6NcmBridge(
                     inboundLogBudget--
                     Log.i(TAG, "ncm inbound ${frame.summary(ipv6.payloadOffset)}")
                 }
+                // A VpnService tun is a layer-3 device: the kernel delivers neighbor solicitations
+                // to userspace and never answers them, so the phone's NS for our link-local address
+                // died unanswered and wired CarPlay stalled after StartSession. Answer here.
+                if (isNeighborSolicitationForUs(frame, ipv6)) {
+                    answerNeighborSolicitation(frame, ipv6)
+                    continue
+                }
                 output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
             }
         } catch (error: IOException) {
@@ -87,6 +96,42 @@ class Ipv6NcmBridge(
             if (running.get()) onError(error)
         }
     }
+
+    /** True when the frame is an icmp6 NS whose target is our own tun link-local address. */
+    private fun isNeighborSolicitationForUs(frame: ByteArray, ipv6: EthernetIpv6Codec.Ipv6FrameView): Boolean {
+        val payload = ipv6.payloadLength
+        if (payload < NS_MIN_BYTES) return false
+        val offset = ipv6.payloadOffset
+        if (frame[offset + 6].toInt() and 0xff != ICMPV6_NEXT_HEADER) return false
+        if (frame[offset + 40].toInt() and 0xff != ICMPV6_NEIGHBOR_SOLICITATION) return false
+        val target = ByteArray(16)
+        System.arraycopy(frame, offset + 48, target, 0, 16)
+        return target.contentEquals(linkLocal)
+    }
+
+    /** Sends a solicited NA straight back over NCM; the packet is not forwarded into the tun. */
+    private fun answerNeighborSolicitation(frame: ByteArray, ipv6: EthernetIpv6Codec.Ipv6FrameView) {
+        if (outboundLogBudget > 0) {
+            outboundLogBudget--
+            Log.i(TAG, "ncm inbound ${frame.summary(ipv6.payloadOffset)} -> answering NS for our link-local")
+        }
+        val offset = ipv6.payloadOffset
+        val requester = frame.copyOfRange(offset + 8, offset + 24)
+        val advertisement = EthernetIpv6Codec.buildNeighborAdvertisement(
+            targetAddress = linkLocal,
+            sourceMac = hostMac,
+            destinationMac = ipv6.sourceMac,
+            requestedSource = requester,
+        )
+        ncm.send(advertisement, WRITE_TIMEOUT_MILLIS)
+        if (!answeredNs) {
+            answeredNs = true
+            Log.i(TAG, "ncm answered the phone's neighbor solicitation; wired discovery can proceed")
+        }
+    }
+
+    @Volatile
+    private var answeredNs = false
 
     private fun runTunToNcm() {
         val input = FileInputStream(tun.fileDescriptor)
@@ -177,5 +222,11 @@ class Ipv6NcmBridge(
         const val TUN_READ_BYTES = 4_096
         const val ZERO_READ_BACKOFF_NANOS = 1_000_000L
         const val JOIN_TIMEOUT_MILLIS = 2_000L
+
+        private const val ICMPV6_NEXT_HEADER = 58
+        private const val ICMPV6_NEIGHBOR_SOLICITATION = 135
+
+        /** IPv6 header (40) + icmp6 NS body (type/code/checksum 4 + reserved 4 + target 16). */
+        private const val NS_MIN_BYTES = 64
     }
 }

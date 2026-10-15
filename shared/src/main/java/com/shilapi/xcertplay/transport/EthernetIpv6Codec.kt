@@ -111,6 +111,50 @@ object EthernetIpv6Codec {
         return result
     }
 
+    /**
+     * Builds a complete Ethernet frame carrying a solicited Neighbor Advertisement for
+     * [targetAddress], answering a Neighbor Solicitation the phone sent for our link-local address.
+     *
+     * A VpnService tun is a layer-3 device: the kernel delivers NS arriving on it to userspace and
+     * never answers, so the bridge must answer here or the phone never resolves fe80::2 and wired
+     * CarPlay stalls after StartSession. The advertisement is the standard shape: R=0, S=1, O=1,
+     * target = our link-local, options = target link-layer address.
+     */
+    fun buildNeighborAdvertisement(
+        targetAddress: ByteArray,
+        sourceMac: ByteArray,
+        destinationMac: ByteArray,
+        requestedSource: ByteArray,
+    ): ByteArray {
+        require(targetAddress.size == 16) { "targetAddress must be 16 bytes" }
+        require(sourceMac.size == MAC_BYTES) { "sourceMac must be $MAC_BYTES bytes" }
+        require(destinationMac.size == MAC_BYTES) { "destinationMac must be $MAC_BYTES bytes" }
+        require(requestedSource.size == 16) { "requestedSource must be 16 bytes" }
+
+        // ICMPv6 header (type, code, checksum), then NA flags (R=0,S=1,O=1), 16-byte target,
+        // then an 8-byte target link-layer address option.
+        val icmp = ByteArray(ICMPV6_NA_BYTES + 8)
+        icmp[0] = ICMPV6_NEIGHBOR_ADVERTISEMENT.toByte()
+        icmp[1] = 0 // code
+        icmp[4] = 0x60 // flags: solicited + override
+        targetAddress.copyInto(icmp, 8)
+        icmp[ICMPV6_NA_BYTES] = ICMPV6_TARGET_LINK_LAYER_OPTION.toByte()
+        icmp[ICMPV6_NA_BYTES + 1] = 1
+        sourceMac.copyInto(icmp, ICMPV6_NA_BYTES + 2)
+
+        val ipv6 = ByteArray(IPV6_HEADER_BYTES + icmp.size)
+        ipv6[0] = 0x60 // version 6, traffic class 0, flow label 0
+        ipv6[IPV6_PAYLOAD_LENGTH_OFFSET] = (icmp.size ushr 8).toByte()
+        ipv6[IPV6_PAYLOAD_LENGTH_OFFSET + 1] = icmp.size.toByte()
+        ipv6[IPV6_NEXT_HEADER_OFFSET] = ICMPV6_NEXT_HEADER.toByte()
+        ipv6[IPV6_HOP_LIMIT_OFFSET] = 255
+        // Solicited responses go back to the requester's unicast address.
+        System.arraycopy(requestedSource, 0, ipv6, IPV6_SOURCE_OFFSET, 16)
+        System.arraycopy(requestedSource, 0, ipv6, IPV6_DESTINATION_OFFSET, 16)
+        writeIcmpv6Checksum(ipv6)
+        return build(sourceMac, destinationMac, ipv6)
+    }
+
     private fun writeIcmpv6Checksum(ipv6: ByteArray) {
         val payloadBytes = readU16(ipv6, IPV6_PAYLOAD_LENGTH_OFFSET)
         ipv6[IPV6_HEADER_BYTES + 2] = 0
@@ -147,6 +191,7 @@ object EthernetIpv6Codec {
     private const val IPV6_HEADER_BYTES = 40
     private const val IPV6_PAYLOAD_LENGTH_OFFSET = 4
     private const val IPV6_NEXT_HEADER_OFFSET = 6
+    private const val IPV6_HOP_LIMIT_OFFSET = 7
     private const val IPV6_SOURCE_OFFSET = 8
     private const val IPV6_DESTINATION_OFFSET = 24
     private const val ICMPV6_NEXT_HEADER = 58

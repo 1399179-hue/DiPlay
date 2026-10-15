@@ -62,6 +62,31 @@ class EthernetIpv6CodecTest {
         assertEquals(0xffff, ipv6IcmpChecksumSum(result))
     }
 
+    @Test
+    fun `neighbor advertisement answers a solicitation for our link-local`() {
+        val target = byteArrayOf(0xfe.toByte(), 0x80.toByte()) + ByteArray(6) + byteArrayOf(0, 0, 0, 0, 0, 2)
+        val requester = byteArrayOf(0xfe.toByte(), 0x80.toByte()) + ByteArray(6) +
+            byteArrayOf(0x08, 0x0a, 0x3f, 0xaa.toByte(), 0xb1.toByte(), 0xa3.toByte(), 0x7d, 0x5b)
+        val mac = byteArrayOf(0x5a, 0xb9.toByte(), 0x65, 0x80.toByte(), 0xfe.toByte(), 0xdc.toByte())
+        val peerMac = byteArrayOf(0x86.toByte(), 0x89.toByte(), 0x7d, 0x15, 0x62, 0xd6.toByte())
+
+        val frame = EthernetIpv6Codec.buildNeighborAdvertisement(target, mac, peerMac, requester)
+        val ipv6 = EthernetIpv6Codec.parseIpv6(frame)!!.ipv6
+
+        // icmp6=136, code 0, solicited+override flags at icmp[4], hop limit 255, target and MAC option.
+        assertEquals(136, ipv6[40].toInt() and 0xff)
+        assertEquals(0, ipv6[41].toInt() and 0xff)
+        assertEquals(0x60, ipv6[44].toInt() and 0xff)
+        assertEquals(255, ipv6[7].toInt() and 0xff)
+        assertArrayEquals(target, ipv6.copyOfRange(48, 64))
+        assertArrayEquals(requester, ipv6.copyOfRange(8, 24))
+        assertArrayEquals(requester, ipv6.copyOfRange(24, 40))
+        assertEquals(2, ipv6[64].toInt() and 0xff)
+        assertEquals(1, ipv6[65].toInt() and 0xff)
+        assertArrayEquals(mac, ipv6.copyOfRange(66, 72))
+        assertEquals(0xffff, ipv6IcmpChecksumSum(ipv6))
+    }
+
     private fun ipv6IcmpChecksumSum(packet: ByteArray): Int {
         val payloadBytes = ((packet[4].toInt() and 0xff) shl 8) or (packet[5].toInt() and 0xff)
         var sum = 0L

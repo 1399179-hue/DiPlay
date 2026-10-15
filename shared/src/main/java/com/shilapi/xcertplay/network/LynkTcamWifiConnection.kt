@@ -47,6 +47,9 @@ internal class LynkTcamWifiConnection(
     private var previousBinding: Network? = null
     private var ownedBinding: Network? = null
 
+    /** Set when the single candidate is accepted on its address policy despite an unreadable SSID. */
+    private var acceptedByAddress = false
+
     @Volatile
     private var closed = false
 
@@ -83,6 +86,12 @@ internal class LynkTcamWifiConnection(
                 ExistingWifi()
             }
             existing.failure?.let { reportFailure(it) }
+            if (acceptedByAddress && existing.network != null) {
+                acceptedByAddress = false
+                runCatching {
+                    onDiagnostic("TCAM existing Wi-Fi accepted on its address policy; platform reports no SSID")
+                }
+            }
             val candidate = existing.network
             if (candidate != null) {
                 val bound = try {
@@ -158,23 +167,37 @@ internal class LynkTcamWifiConnection(
                     null
                 }
             }
-            if (normalized == null) nameUnreadable = true
+            val linkProperties = connectivity.getLinkProperties(network)
+            val selected = linkProperties?.let { properties ->
+                LynkTcamNetworkPolicy.selectConnected(
+                    manufacturer = Build.MANUFACTURER.orEmpty(),
+                    model = Build.MODEL.orEmpty(),
+                    network = LynkTcamNetworkPolicy.ConnectedNetwork(
+                        interfaceName = properties.interfaceName,
+                        wifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true,
+                        vpn = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true,
+                        notVpn = capabilities
+                            ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true,
+                        addresses = properties.linkAddresses.mapNotNull { it.address as? Inet4Address },
+                    ),
+                )
+            }
+            // The head unit is often the AP itself (the TCAM hotspot lives in the module), and the
+            // platform then reports no SSID for its own interface — an unreadable name is not a
+            // reason to reject a network the address policy already proved is the car's link. Only
+            // the single-candidate case is relaxed: with several Wi-Fi links up, the name is what
+            // tells them apart, so guessing would be worse than failing.
+            if (normalized == null) {
+                nameUnreadable = true
+                if (candidates.size == 1 && selected != null) {
+                    acceptedByAddress = true
+                    matches.add(network)
+                }
+                continue
+            }
             if (normalized != ssid) continue
 
             nameMatched = true
-            val linkProperties = connectivity.getLinkProperties(network) ?: continue
-            val selected = LynkTcamNetworkPolicy.selectConnected(
-                manufacturer = Build.MANUFACTURER.orEmpty(),
-                model = Build.MODEL.orEmpty(),
-                network = LynkTcamNetworkPolicy.ConnectedNetwork(
-                    interfaceName = linkProperties.interfaceName,
-                    wifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true,
-                    vpn = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true,
-                    notVpn = capabilities
-                        ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) == true,
-                    addresses = linkProperties.linkAddresses.mapNotNull { it.address as? Inet4Address },
-                ),
-            )
             if (selected != null) matches.add(network)
         }
 

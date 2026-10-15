@@ -107,7 +107,12 @@ class CarPlayVpnService : VpnService() {
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
 
-            val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
+            val ipv6Bridge = Ipv6NcmBridge(
+                ncm,
+                tunFd,
+                hostMac,
+                linkLocal = address.address,
+            ) { error ->
                 onTransportError(generation, listener, error)
             }
             ipv6Bridge.start()
