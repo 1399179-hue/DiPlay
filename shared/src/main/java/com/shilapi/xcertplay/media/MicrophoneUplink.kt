@@ -367,8 +367,6 @@ internal class MicrophoneUplink(
                     continue
                 }
                 lastAudioNs = System.nanoTime()
-                    continue
-                }
                 // Gain the captured PCM before it is framed and encoded, so the level the handset
                 // receives is the user's choice rather than whatever the head unit's mic preamp
                 // happens to produce. The echo canceller still runs on the gained near-end signal.
