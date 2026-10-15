@@ -42,6 +42,8 @@ internal class MicrophoneUplink(
     private val counters: MicrophoneCounters = MicrophoneCounters(),
     /** User-selectable capture gain applied to every PCM16 frame before encoding. */
     microphoneGainPercent: Int = MicrophoneGain.DEFAULT_PERCENT,
+    /** Automatic gain for a head unit whose microphone preamp is quiet; opt-in, applies per frame. */
+    private val microphoneBoostEnabled: Boolean = false,
     private val opusEncoderFactory: (Int) -> MicrophoneOpusEncoder? = { bitrate ->
         MicrophoneOpusEncoders.create(
             bitrate = bitrate,
@@ -53,6 +55,10 @@ internal class MicrophoneUplink(
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val gainPercent = MicrophoneGain.sanitize(microphoneGainPercent)
+    // Auto-gain for a quiet head-unit preamp; off unless the capture asks for it (see boostEnabled).
+    private val inputBoost = MicrophoneInputBoost(config.sampleRate, config.channels)
+    private val inputLevelMeter = MicrophoneLevelMeter(config.channels)
+    private val uplinkLevelMeter = MicrophoneLevelMeter(config.channels)
     private val stats = MicrophoneCaptureStats(config, report = { message ->
         Log.i(TAG, message)
         onDiagnostic(message)
@@ -367,10 +373,12 @@ internal class MicrophoneUplink(
                     continue
                 }
                 lastAudioNs = System.nanoTime()
+                inputLevelMeter.accept(readBuffer, 0, count)
                 // Gain the captured PCM before it is framed and encoded, so the level the handset
                 // receives is the user's choice rather than whatever the head unit's mic preamp
                 // happens to produce. The echo canceller still runs on the gained near-end signal.
                 MicrophoneGain.applyPcm16InPlace(readBuffer, count, gainPercent)
+                inputBoost.apply(readBuffer, microphoneBoostEnabled)
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)
@@ -396,11 +404,12 @@ internal class MicrophoneUplink(
                             }
                         }
                         stats.level(frame)
+                        uplinkLevelMeter.accept(frame)
                         sendFrame(socket, counters, frame)
                         filled = 0
                     }
                 }
-                stats.flush(routeType = routeInfo)
+                stats.flush(routeType = routeInfo, levels = levelDiagnostics())
             }
         } catch (error: Exception) {
             if (running.get()) {
@@ -430,6 +439,12 @@ internal class MicrophoneUplink(
             )
         }
     }
+
+    /** Input and uplink level windows plus the auto-gain state, for the diagnostic report. */
+    private fun levelDiagnostics(): String =
+        inputLevelMeter.takeWindow().diagnosticSuffix("input") +
+            uplinkLevelMeter.takeWindow().diagnosticSuffix("uplink") +
+            inputBoost.diagnosticSuffix()
 
     private fun restartRecording(recorder: AudioRecord): Boolean = try {
         runCatching { recorder.stop() }
