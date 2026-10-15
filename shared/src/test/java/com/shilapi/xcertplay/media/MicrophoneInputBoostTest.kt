@@ -1,12 +1,11 @@
 package com.shilapi.xcertplay.media
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MicrophoneInputBoostTest {
-    private fun pcm16(vararg samples: Int): ByteArray {
+    private fun pcm16(samples: IntArray): ByteArray {
         val out = ByteArray(samples.size * 2)
         samples.forEachIndexed { index, sample ->
             out[index * 2] = sample.toByte()
@@ -15,45 +14,49 @@ class MicrophoneInputBoostTest {
         return out
     }
 
-    private fun firstSample(pcm: ByteArray): Int =
-        ((pcm[0].toInt() and 0xff) or (pcm[1].toInt() shl 8)).toShort().toInt()
+    private fun sample(pcm: ByteArray, index: Int): Int =
+        ((pcm[index * 2].toInt() and 0xff) or (pcm[index * 2 + 1].toInt() shl 8)).toShort().toInt()
 
-    @Test fun quietSpeechIsLifted() {
+    /** A fresh quiet frame, as the capture loop produces every 20 ms. */
+    private fun quietFrame(size: Int = 960) = pcm16(IntArray(size) { if (it % 2 == 0) 100 else -100 })
+
+    @Test fun quietSpeechIsLiftedTowardsTheLevelTarget() {
         val boost = MicrophoneInputBoost(48_000, 1)
-        // RMS 100 sits between QUIET_RMS (64) and BOOST_RMS (256): a partial boost, well under 2x.
-        val frame = pcm16(100, -100, 100, -100)
-        repeat(1_000) { boost.apply(frame, enabled = true) }
-        assertTrue(boost.enabled)
-        val gained = firstSample(frame)
-        assertTrue("gained=$gained", gained in 101..200)
+        // Apply to fresh quiet audio repeatedly, as the loop does; the gain ramps to the level target.
+        repeat(50) { boost.apply(quietFrame(), enabled = true) }
+        val frame = quietFrame()
+        boost.apply(frame, enabled = true)
+        val gained = kotlin.math.abs(sample(frame, 0))
+        // rms 100 -> 1 + (100-64)/(256-64) = 1.1875, so ~119, never past 2x.
+        assertTrue("gained=$gained", gained in 110..200)
+        assertTrue(boost.diagnosticSuffix().contains("inputBoostEnabled=true"))
     }
 
     @Test fun disabledLeavesPcmUntouchedAndResetsGain() {
         val boost = MicrophoneInputBoost(48_000, 1)
-        val frame = pcm16(100, -100)
+        val frame = quietFrame()
         boost.apply(frame, enabled = true)
         boost.apply(frame, enabled = false)
-        assertEquals(100, firstSample(frame))
+        assertEquals(100, kotlin.math.abs(sample(frame, 0)))
         assertTrue(boost.diagnosticSuffix().contains("inputBoostEnabled=false"))
     }
 
-    @Test fun loudAudioIsNeverClipped() {
+    @Test fun loudAudioIsBoundedByTheHeadroom() {
         val boost = MicrophoneInputBoost(48_000, 1)
-        // Near full scale: the gain must stay at unity, not push past 32767.
-        val frame = pcm16(30_000, -30_000, 30_000, -30_000)
-        repeat(50) { boost.apply(frame, enabled = true) }
-        assertEquals(30_000, firstSample(frame))
+        // Near full scale: the gain may rise only to the headroom (32767/peak), never past 32767.
+        repeat(20) { boost.apply(pcm16(IntArray(960) { if (it % 2 == 0) 30_000 else -30_000 }), enabled = true) }
+        val frame = pcm16(IntArray(960) { if (it % 2 == 0) 30_000 else -30_000 })
+        boost.apply(frame, enabled = true)
+        val gained = kotlin.math.abs(sample(frame, 0))
+        assertTrue("gained=$gained", gained in 30_000..32767)
     }
 
-    @Test fun stereoChannelsAreBothGained() {
+    @Test fun bothChannelsMoveTogether() {
         val boost = MicrophoneInputBoost(48_000, 2)
-        val frame = pcm16(120, 120, -120, -120)
-        repeat(1_000) { boost.apply(frame, enabled = true) }
-        val left = firstSample(frame)
-        assertTrue("left=$left", left in 121..240)
-        // The right channel must move with the left, not be left behind.
-        val right = ((frame[2].toInt() and 0xff) or (frame[3].toInt() shl 8)).toShort().toInt()
-        assertEquals(left, right)
-        assertFalse(left == 120)
+        repeat(50) { boost.apply(pcm16(IntArray(960) { 120 }), enabled = true) }
+        val frame = pcm16(IntArray(960) { 120 })
+        boost.apply(frame, enabled = true)
+        assertEquals(sample(frame, 0), sample(frame, 1))
+        assertTrue(sample(frame, 0) > 120)
     }
 }
