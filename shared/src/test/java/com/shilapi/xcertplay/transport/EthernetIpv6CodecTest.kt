@@ -64,9 +64,12 @@ class EthernetIpv6CodecTest {
 
     @Test
     fun `neighbor advertisement answers a solicitation for our link-local`() {
-        val target = byteArrayOf(0xfe.toByte(), 0x80.toByte()) + ByteArray(6) + byteArrayOf(0, 0, 0, 0, 0, 2)
-        val requester = byteArrayOf(0xfe.toByte(), 0x80.toByte()) + ByteArray(6) +
-            byteArrayOf(0x08, 0x0a, 0x3f, 0xaa.toByte(), 0xb1.toByte(), 0xa3.toByte(), 0x7d, 0x5b)
+        val target = ByteArray(16).also { it[0] = 0xfe.toByte(); it[1] = 0x80.toByte(); it[15] = 2 }
+        val requester = ByteArray(16).also {
+            it[0] = 0xfe.toByte(); it[1] = 0x80.toByte()
+            it[8] = 0x08; it[9] = 0x0a; it[10] = 0x3f; it[11] = 0xaa.toByte()
+            it[12] = 0xb1.toByte(); it[13] = 0xa3.toByte(); it[14] = 0x7d; it[15] = 0x5b
+        }
         val mac = byteArrayOf(0x5a, 0xb9.toByte(), 0x65, 0x80.toByte(), 0xfe.toByte(), 0xdc.toByte())
         val peerMac = byteArrayOf(0x86.toByte(), 0x89.toByte(), 0x7d, 0x15, 0x62, 0xd6.toByte())
 
