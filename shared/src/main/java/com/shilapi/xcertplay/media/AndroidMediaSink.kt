@@ -1760,6 +1760,11 @@ private class AudioRenderer(
     private var clockTrim: MediaClockTrim? = null
     private var lastPcmWriteNs = 0L
     private var rebufferCount = 0
+    // Report each rebuffer/queue-full event a bounded number of times: a persistent problem would
+    // otherwise fill the whole report with the same line.
+    private var rebufferPauseReportCount = 0
+    private var rebufferRecoverReportCount = 0
+    private var queueFullReportCount = 0
     private var diagnosticStage = "starting"
     private var lastDecoderOutputMetadata: String? = null
     private var decoderOutputReports = 0
@@ -1792,7 +1797,10 @@ private class AudioRenderer(
             if (!droppedPacketsLogged) {
                 droppedPacketsLogged = true
                 Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
-                report("Audio: queue full audioType=${format.audioType}")
+                if (queueFullReportCount < MAX_AUDIO_EVENT_REPORTS) {
+                    queueFullReportCount++
+                    report("Audio: queue full audioType=${format.audioType} count=$queueFullReportCount")
+                }
             }
             queue.offer(packet)
         }
@@ -2197,6 +2205,8 @@ private class AudioRenderer(
             .array()
 
     private fun handle(packet: AudioPacket) {
+        // The queue drained, so the overflow (if any) has passed: allow the next one to be reported.
+        if (queue.isEmpty()) droppedPacketsLogged = false
         val rtp = packet.rtp
         when (format.codec) {
             AudioCodecKind.LPCM -> writePcm(byteSwapS16(rtp.copyOfRange(12, rtp.size)))
@@ -2430,6 +2440,10 @@ private class AudioRenderer(
         track.play()
         playbackStarted = true
         reportNavigationPlayback(track)
+        if (rebufferCount > 0 && rebufferRecoverReportCount < MAX_AUDIO_EVENT_REPORTS) {
+            rebufferRecoverReportCount++
+            report("Audio: rebuffer recovered audioType=${format.audioType} rebufferCount=$rebufferCount")
+        }
     }
 
     private fun reportNavigationPlayback(track: AudioTrack) {
@@ -2477,6 +2491,11 @@ private class AudioRenderer(
                 .coerceAtMost(startThresholdBytes.toLong()).toInt()
             lastPcmWriteNs = System.nanoTime()
             rebufferCount++
+            if (rebufferPauseReportCount < MAX_AUDIO_EVENT_REPORTS) {
+                rebufferPauseReportCount++
+                val retainedMs = if (bytesPerSecond > 0) prebufferBytes * 1000L / bytesPerSecond else 0L
+                report("Audio: rebuffer paused audioType=${format.audioType} rebufferCount=$rebufferCount retainedMs=$retainedMs")
+            }
         }
         // A short final burst may never reach the start threshold. Play it after a bounded wait.
         if (!playbackStarted && prebufferBytes > 0 && queue.isEmpty() &&
@@ -2624,6 +2643,8 @@ private class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
+        /** Report each rebuffer/queue-full event at most this many times, so the report stays readable. */
+        const val MAX_AUDIO_EVENT_REPORTS = 5
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
         const val MAX_QUEUED_PACKETS = 192
         const val PREBUFFER_WRITE_CHUNK_BYTES = 2 * 1024

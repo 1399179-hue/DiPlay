@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CarPlayBonjourTest {
@@ -71,7 +72,7 @@ class CarPlayBonjourTest {
             "GET /ctrl-int/1/connect HTTP/1.1\r\n" +
                 "Host: [fe80::1]:7000\r\n" +
                 "User-Agent: AirPlay/366.0\r\n" +
-                "AirPlay-Receiver-Device-ID: 020000000002\r\n" +
+                "AirPlay-Receiver-Device-ID: 2199023255554\r\n" +
                 "Connection: close\r\n" +
                 "\r\n",
             CarPlayBonjourProtocol.connectProbeRequest(
@@ -81,5 +82,18 @@ class CarPlayBonjourTest {
                 deviceId = "02:00:00:00:00:02",
             ),
         )
+    }
+
+    @Test
+    fun `the control receiver device id is decimal, not the raw MAC`() {
+        // 0xF018981A2B3C as a decimal number, which is what the receiver expects.
+        val request = CarPlayBonjourProtocol.connectProbeRequest(
+            host = "fe80::1%wlan0",
+            port = 7000,
+            sourceVersion = "366.0",
+            deviceId = "F0:18:98:1A:2B:3C",
+        )
+        assertTrue(request.contains("AirPlay-Receiver-Device-ID: 263988421733180\r\n"))
+        assertFalse(request.contains("F018981A2B3C"))
     }
 }
