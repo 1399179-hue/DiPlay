@@ -211,18 +211,29 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
             }
 
             var omitted: Set<Int>? = null
+            var locationRetried = false
             while (true) {
                 val frame = recv(remainingMillis(deadlineNanos))
                     ?: throw IphoneUsbException.TimedOut("Timed out waiting for iAP2 identification")
                 when (frame.messageId) {
-                    START_IDENTIFICATION -> send(identificationInformation(config, omitted.orEmpty()), remainingMillis(deadlineNanos))
+                    START_IDENTIFICATION -> send(identificationInformation(config, omitted.orEmpty(), dropLocation = locationRetried), remainingMillis(deadlineNanos))
                     IDENTIFICATION_ACCEPTED -> return
                     IDENTIFICATION_REJECTED -> {
                         val rejection = identificationRejection(frame)
+                        // Some iPhones refuse the LocationInformation component outright while
+                        // their location decision is pending (rejection listing parameter 0x0016,
+                        // seen as a 9-attempt wired reconnect storm on the Lynk 03). Retry once
+                        // without it before failing the whole stack rebuild.
+                        if (!locationRetried && rejection.parameterIds == setOf(LOCATION_INFORMATION_PARAMETER)) {
+                            locationRetried = true
+                            onProgress("iap2 identification retry without the location component")
+                            send(identificationInformation(config, emptySet(), dropLocation = true), remainingMillis(deadlineNanos))
+                            continue
+                        }
                         if (omitted != null) throw rejection
                         omitted = rejection.omittableMessages() ?: throw rejection
                         onProgress("iap2 identification retry without unsupported messages ${omitted.sorted().hexadecimalIds()}")
-                        send(identificationInformation(config, omitted), remainingMillis(deadlineNanos))
+                        send(identificationInformation(config, omitted, dropLocation = locationRetried), remainingMillis(deadlineNanos))
                     }
                     else -> throw Iap2IdentificationException.UnexpectedMessage(frame.messageId)
                 }
@@ -299,14 +310,19 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
         }
 
         /** Builds the smallest honest LIVI-compatible wired or wireless IdentificationInformation. */
-        fun identificationInformation(config: Iap2IdentificationConfig, omitted: Set<Int> = emptySet()): Iap2Frame {
+        fun identificationInformation(
+            config: Iap2IdentificationConfig,
+            omitted: Set<Int> = emptySet(),
+            dropLocation: Boolean = false,
+        ): Iap2Frame {
             val wireless = config.wireless
-            var sentMessages = if (config.locationInformationEnabled) {
+            val locationEnabled = config.locationInformationEnabled && !dropLocation
+            var sentMessages = if (locationEnabled) {
                 MESSAGES_SENT_BY_ACCESSORY + LOCATION_INFORMATION
             } else {
                 MESSAGES_SENT_BY_ACCESSORY
             }
-            var receivedMessages = if (config.locationInformationEnabled) {
+            var receivedMessages = if (locationEnabled) {
                 MESSAGES_RECEIVED_FROM_PHONE + START_LOCATION_INFORMATION + STOP_LOCATION_INFORMATION
             } else {
                 MESSAGES_RECEIVED_FROM_PHONE
@@ -378,7 +394,7 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
                     }
                 }
                 if (config.vehicleStatusEnabled) electricVehicleComponents(config.manufacturer, config.chargingConnectors)
-                if (config.locationInformationEnabled) {
+                if (config.locationInformationEnabled && !dropLocation) {
                     group(22) {
                         u16(0, 0)
                         string(1, config.name)
@@ -443,6 +459,8 @@ class Iap2IdentificationClient(private val session: Iap2Session) {
         private const val CARPLAY_START_SESSION = 0x4301
         private const val ACCESSORY_WIFI_CONFIGURATION_INFORMATION = 0x5703
         private const val LOCATION_INFORMATION = 0xfffb
+        /** The identification parameter id of the LocationInformation component (group 22). */
+        private const val LOCATION_INFORMATION_PARAMETER = 0x0016
         private const val START_LOCATION_INFORMATION = 0xfffa
         private const val STOP_LOCATION_INFORMATION = 0xfffc
         private val WIRELESS_PHONE_MESSAGES = intArrayOf(0x4e0d, 0x4e0e, 0x5702)
