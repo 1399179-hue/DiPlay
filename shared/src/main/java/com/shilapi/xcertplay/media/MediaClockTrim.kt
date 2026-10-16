@@ -32,7 +32,13 @@ internal class MediaClockTrim(
     /** Records the queued level right after a write while music plays. */
     fun sample(queuedFrames: Long, nowNs: Long) {
         if (targetFrames <= 0L) return
-        val error = (queuedFrames - targetFrames).toDouble() / targetFrames
+        // A supply gap (a 766 ms Wi-Fi pause was seen on the Lynk 03) drains the buffer without
+        // saying anything about the clocks. An unbounded error read that empty buffer as drift,
+        // the P term slammed the rate to the -3 % bound, the backlog then refilled past the start
+        // level and dropped 465 packets of audible ticks. Bound what the controller ever sees;
+        // the buffer headroom absorbs the gap instead.
+        val error = ((queuedFrames - targetFrames).toDouble() / targetFrames)
+            .coerceIn(-MAX_CONTROL_ERROR, MAX_CONTROL_ERROR)
         val previous = level
         // After a pause, a rebuffer or the first write the average restarts from what is queued now.
         level = if (previous == null || nowNs - lastSampleNs > STALE_NS) error
@@ -68,6 +74,12 @@ internal class MediaClockTrim(
          */
         const val MAX_TRIM = 0.03
         const val KP = 0.03
+        /**
+         * Farthest the queue level may push the controller. 0.25 keeps the P term within
+         * ±0.75 % — more than the ~0.7 % clock seen on the Lynk 03 — so real drift still
+         * converges while supply gaps ride the buffer headroom instead of saturating the trim.
+         */
+        const val MAX_CONTROL_ERROR = 0.25
         /** Per second, per unit of level error. */
         const val KI = 0.001
         const val AVERAGE_NS = 5_000_000_000.0
