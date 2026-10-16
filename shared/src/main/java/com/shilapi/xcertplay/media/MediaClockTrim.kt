@@ -59,8 +59,14 @@ internal class MediaClockTrim(
     }
 
     internal companion object {
-        /** At most 1.5 % slower or faster: 26 cents, above the 0.76 % seen on #610. */
-        const val MAX_TRIM = 0.015
+        /**
+         * At most 3 % slower or faster. 1.5 % covered the 0.76 % clock seen on #610, but the
+         * Lynk 03 head unit's DAC runs ~0.7 % fast against the iPhone *and* its AudioTrack write
+         * path throttles to the delivered rate, so the trim saturated at its 1.5 % bound and the
+         * leftover overflow was absorbed by dropping a packet a second — an audible tick. 3 %
+         * still stays well inside a musical semitone (5.9 %).
+         */
+        const val MAX_TRIM = 0.03
         const val KP = 0.03
         /** Per second, per unit of level error. */
         const val KI = 0.001

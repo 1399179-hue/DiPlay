@@ -72,6 +72,37 @@ class Iap2IdentificationRetryTest {
     }
 
     @Test
+    fun aLocationComponentRejectionIsRetriedWithoutTheComponent() {
+        // The Lynk 03 wired storm: the iPhone refuses parameter 0x0016 (LocationInformation) while
+        // its location decision is pending; identification must retry without the component rather
+        // than rebuild the whole stack.
+        val located = config.copy(locationInformationEnabled = true)
+        val phone = Phone(start(), rejected(Iap2Parameter(0x16, byteArrayOf())), accepted())
+        val progress = mutableListOf<String>()
+        phone.identifyLocated(located, progress::add)
+        assertEquals(2, phone.sent.size)
+        assertNull(Iap2ParameterList.parse(phone.sent[1].payload).first(22))
+        assertEquals(listOf("iap2 identification retry without the location component"), progress)
+    }
+
+    @Test
+    fun droppingTheLocationComponentRemovesItsMessagesAndGroup() {
+        val located = config.copy(locationInformationEnabled = true)
+        val kept = Iap2ParameterList.parse(
+            Iap2IdentificationClient.identificationInformation(located).payload,
+        )
+        val dropped = Iap2ParameterList.parse(
+            Iap2IdentificationClient.identificationInformation(located, dropLocation = true).payload,
+        )
+        assertTrue(kept.first(22) != null)
+        assertNull(dropped.first(22))
+        assertTrue(0xfffb in u16Values(kept.first(6)!!.payload))
+        assertFalse(0xfffb in u16Values(dropped.first(6)!!.payload))
+        assertFalse(0xfffa in u16Values(dropped.first(7)!!.payload))
+        assertFalse(0xfffc in u16Values(dropped.first(7)!!.payload))
+    }
+
+    @Test
     fun aRejectionThatCannotBeCorrectedFailsWithoutResending() {
         val phone = Phone(start(), rejected(Iap2Parameter(16, byteArrayOf())), accepted())
         try {
@@ -102,6 +133,16 @@ class Iap2IdentificationRetryTest {
             timeoutMillis = 1_000,
             onProgress = onProgress,
         )
+
+        fun identifyLocated(located: Iap2IdentificationConfig, onProgress: (String) -> Unit) =
+            Iap2IdentificationClient.exchange(
+                awaitReady = { true },
+                recv = { queue.removeFirstOrNull() },
+                send = { frame, _ -> sent += frame },
+                config = located,
+                timeoutMillis = 1_000,
+                onProgress = onProgress,
+            )
 
         fun sentMessages(index: Int): List<Int> =
             u16Values(Iap2ParameterList.parse(sent[index].payload).first(6)!!.payload)
