@@ -9,7 +9,8 @@ class MediaAudioBufferTest {
         // 48 kHz stereo 16-bit = 192 000 bytes/s.
         val plan = MediaAudioBuffer.plan(true, 48_000, 2, minBufferBytes = 7_680, mediaMillis = 500)
         assertEquals(96_000, plan.startBytes)
-        assertEquals(134_400, plan.trackBufferBytes)
+        // 500 ms chosen delay + 400 ms headroom.
+        assertEquals(172_800, plan.trackBufferBytes)
     }
 
     @Test
