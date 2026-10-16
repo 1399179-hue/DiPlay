@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- CarPlay App 的上網出口走的是哪個網路。 -->
+    <string name="app_internet_source">CarPlay App 上網出口：%1$s</string>
+    <string name="app_internet_source_car">車機網路（TCAM 熱點）</string>
+    <string name="app_internet_source_phone">手機網路</string>
+    <string name="app_internet_source_usb">手機網路（USB 連線）</string>
+    <string name="app_internet_source_unknown">未知</string>
+</resources>

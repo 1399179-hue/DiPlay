@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Which network the iPhone's CarPlay apps reach the internet through. -->
+    <string name="app_internet_source">CarPlay apps go online through: %1$s</string>
+    <string name="app_internet_source_car">the car’s network (TCAM hotspot)</string>
+    <string name="app_internet_source_phone">the phone’s own network</string>
+    <string name="app_internet_source_usb">the phone’s own network (USB session)</string>
+    <string name="app_internet_source_unknown">unknown</string>
+</resources>
