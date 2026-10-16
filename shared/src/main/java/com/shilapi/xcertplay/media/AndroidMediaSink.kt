@@ -1779,13 +1779,22 @@ private class AudioRenderer(
             val previous = lastArrivalNs.getAndSet(now)
             if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
         }
-        if (!started || !queue.offer(AudioPacket(rtp, sample))) {
-            if (started) packetsDropped.incrementAndGet()
-            if (started && !droppedPacketsLogged) {
+        if (!started) return
+        val packet = AudioPacket(rtp, sample)
+        if (!queue.offer(packet)) {
+            // The queue only fills when the play-out clock runs slower than the delivery rate, and
+            // the clock trim absorbs the steady part. Dropping the NEWEST packet broke the stream
+            // forward at the moment it was heard; dropping the OLDEST instead takes one small
+            // backwards jump at once and keeps every later packet in sequence, so the glitch is
+            // a single soft tick instead of a repeated forward tear.
+            queue.poll()
+            packetsDropped.incrementAndGet()
+            if (!droppedPacketsLogged) {
                 droppedPacketsLogged = true
-                Log.w(TAG, "audio queue full; dropping newest packets to bound latency")
+                Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
                 report("Audio: queue full audioType=${format.audioType}")
             }
+            queue.offer(packet)
         }
     }
 

@@ -83,7 +83,7 @@ class MediaClockTrimTest {
         assertEquals(48_000.0, drive.trim.rate.toDouble(), 5.0)
     }
 
-    @Test fun theTrimStaysWithinOnePointFivePercent() {
+    @Test fun theTrimStaysWithinThreePercent() {
         val trim = MediaClockTrim(48_000, 14_400)
         // Nothing queued for minutes: the trim stops at its bound.
         for (second in 0..600) {
@@ -91,16 +91,16 @@ class MediaClockTrimTest {
             trim.sample(0, nowNs)
             trim.rateDue(nowNs)
         }
-        assertEquals(47_280, trim.rate)
+        assertEquals(46_560, trim.rate)
     }
 
     @Test fun withoutNewAudioTheTrimHolds() {
         val trim = MediaClockTrim(48_000, 14_400)
         trim.sample(7_200, 0)
-        assertEquals(47_280, trim.rateDue(0))
+        assertEquals(46_560, trim.rateDue(0))
         // The iPhone paused: no write for 2 s, so no update even though the last level was low.
         assertNull(trim.rateDue(2_000_000_000L))
-        assertEquals(47_280, trim.rate)
+        assertEquals(46_560, trim.rate)
         // Music resumes at the target level: the average restarts there.
         trim.sample(14_400, 2_100_000_000L)
         assertEquals(48_000, trim.rateDue(2_100_000_000L))
@@ -127,7 +127,7 @@ class MediaClockTrimTest {
     @Test fun updatesComeAtMostOnceASecond() {
         val trim = MediaClockTrim(48_000, 14_400)
         trim.sample(7_200, 0)
-        assertEquals(47_280, trim.rateDue(0))
+        assertEquals(46_560, trim.rateDue(0))
         trim.sample(14_400, 500_000_000L)
         assertNull(trim.rateDue(500_000_000L))
     }
