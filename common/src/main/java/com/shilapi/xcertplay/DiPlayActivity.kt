@@ -390,11 +390,11 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         setupStep = savedInstanceState?.getInt("setup_step") ?: SetupGuide.STEP_CAR
         setupFromSettings = savedInstanceState?.getBoolean("setup_from_settings") ?: false
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
-            // Tapping the launcher icon opens Settings directly: this build is for the 领克 03, where
-            // the driver adjusts settings rather than watching a home screen. A live session still
-            // jumps to the projection above.
+            // Tapping the launcher icon opens the connection screen: the driver wants to see and
+            // start CarPlay, not to land in Settings and have to back out. The first-run setup
+            // guide still comes first. A live session jumps to the projection above.
             ?: if (setupError == null && SetupGuide.shouldOpenOnLaunch(SetupGuide.seen(this),
-                    DiPlayPreferences.phoneAddress(this) != null)) "setup" else "settings"
+                    DiPlayPreferences.phoneAddress(this) != null)) "setup" else "home"
         render()
         scheduleAutomaticVehicleValidation()
         handleWirelessRecovery()
