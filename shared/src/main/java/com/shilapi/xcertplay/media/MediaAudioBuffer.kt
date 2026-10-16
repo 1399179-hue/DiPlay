@@ -12,7 +12,11 @@ object MediaAudioBuffer {
     const val DEFAULT_MILLIS = 300
     val presets = listOf(DEFAULT_MILLIS, 500, 1000)
 
-    private const val HEADROOM_MILLIS = 200 // room above the start level so bursts after a gap fit
+    // Room above the start level so bursts after a gap fit. 400 ms (was 200): while the clock
+    // trim re-converges after a supply gap the backlog needs somewhere to land, and the Lynk 03
+    // dropped a packet a second at 200 ms. The start level, and so the steady-state latency,
+    // is unchanged.
+    private const val HEADROOM_MILLIS = 400
     private const val MIN_TRACK_BUFFER_BYTES = 16 * 1024
     private const val MIN_START_BUFFER_BYTES = 4 * 1024
 
