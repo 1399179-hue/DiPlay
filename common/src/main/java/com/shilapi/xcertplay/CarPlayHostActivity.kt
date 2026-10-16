@@ -379,6 +379,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private var resolutionValueView: TextView? = null
     private var resolutionPreviewView: TextView? = null
     private var hotspotStatusView: TextView? = null
+    /** Which network the iPhone's CarPlay apps reach the internet through, for this session. */
+    private var internetSource: com.shilapi.xcertplay.diagnostics.InternetSourceProbe.Result? = null
+    private var internetSourceView: TextView? = null
     private var manualHotspotFields: View? = null
     private var existingWifiFields: View? = null
     private var existingWifiErrorView: TextView? = null
@@ -2621,6 +2624,10 @@ class CarPlayHostActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = dp(6) },
         )
+        val sourceView = menuText("", 14f, MUTED)
+        sourceView.visibility = View.GONE
+        internetSourceView = sourceView
+        content.addView(sourceView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
 
         content.addView(
             settingsCategoryHeader(getString(R.string.automatic_connection)),
@@ -4225,6 +4232,28 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    /** Shows which network the iPhone's CarPlay apps reach the internet through. */
+    private fun updateInternetSourceView() {
+        val view = internetSourceView ?: return
+        val result = internetSource
+        if (result == null) {
+            view.visibility = View.GONE
+            return
+        }
+        view.visibility = View.VISIBLE
+        view.text = getString(
+            R.string.app_internet_source,
+            getString(
+                when (result.source) {
+                    com.shilapi.xcertplay.diagnostics.InternetSourceProbe.Source.CAR -> R.string.app_internet_source_car
+                    com.shilapi.xcertplay.diagnostics.InternetSourceProbe.Source.PHONE -> R.string.app_internet_source_phone
+                    com.shilapi.xcertplay.diagnostics.InternetSourceProbe.Source.USB -> R.string.app_internet_source_usb
+                    com.shilapi.xcertplay.diagnostics.InternetSourceProbe.Source.UNKNOWN -> R.string.app_internet_source_unknown
+                },
+            ),
+        )
+    }
+
     private fun <T> settingsChoiceRow(
         label: String,
         options: List<Pair<T, String>>,
@@ -5101,6 +5130,7 @@ class CarPlayHostActivity : ComponentActivity() {
             clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
             locationProvider = locationProvider,
             onNativeBluetoothPlaying = renderer::setNativeBluetoothPlaying,
+            onInternetSource = { result -> internetSource = result; updateInternetSourceView() },
             vehicleStatusProvider = if (com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphoneActive(this)) {
                 com.shilapi.xcertplay.hud.BydNavigationOutputs.batteryStatus(applicationContext)
             } else {

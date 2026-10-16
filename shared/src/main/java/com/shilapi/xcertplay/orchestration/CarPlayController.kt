@@ -178,6 +178,8 @@ class CarPlayController(
     private val locationProvider: Iap2LocationProvider? = null,
     private val vehicleStatusProvider: com.shilapi.xcertplay.transport.VehicleStatusProvider? = null,
     private val onNativeBluetoothPlaying: (Boolean) -> Unit = {},
+    /** Which network the iPhone's CarPlay apps reach the internet through, once per session. */
+    private val onInternetSource: ((com.shilapi.xcertplay.diagnostics.InternetSourceProbe.Result) -> Unit)? = null,
 ) : Closeable {
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
@@ -354,6 +356,7 @@ class CarPlayController(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
                     "peer=${session.host}",
             )
+            probeInternetSource()
             uiListener?.onSessionActive(session)
         }
 
@@ -2926,6 +2929,29 @@ class CarPlayController(
             debugLog("$CONNECTION_DIAGNOSTIC_PREFIX attempt=$diagnosticAttempt run=${diagnosticRun.get()} phase=$diagnosticPhase $message")
         } catch (_: Exception) {
             // Optional diagnostics must not change transport or shutdown behavior.
+        }
+    }
+
+    /**
+     * Reports which network the iPhone's CarPlay apps reach the internet through (the car's TCAM
+     * hotspot or the phone's own cellular). The probe is one TCP connect on a worker thread; the
+     * result reaches the host through [onInternetSource] and the diagnostic log.
+     */
+    private fun probeInternetSource() {
+        val wireless = config.transport == CarPlayTransport.WIRELESS
+        val boundNetwork = appContext.getSystemService(android.net.ConnectivityManager::class.java)
+            ?.boundNetworkForProcess
+        executor.execute {
+            val result = runCatching {
+                com.shilapi.xcertplay.diagnostics.InternetSourceProbe.decide(
+                    appContext, boundNetwork, wireless,
+                )
+            }.getOrNull() ?: return@execute
+            if (closed) return@execute
+            connectionDiagnostic("app internet source=${com.shilapi.xcertplay.diagnostics.InternetSourceProbe.describe(result)}")
+            mainHandler.post {
+                if (!closed) onInternetSource?.invoke(result)
+            }
         }
     }
 

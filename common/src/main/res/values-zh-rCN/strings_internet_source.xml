@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- CarPlay 应用的上网出口走的是哪个网络。 -->
+    <string name="app_internet_source">CarPlay 应用上网出口：%1$s</string>
+    <string name="app_internet_source_car">车机网络（TCAM 热点）</string>
+    <string name="app_internet_source_phone">手机网络</string>
+    <string name="app_internet_source_usb">手机网络（USB 连接）</string>
+    <string name="app_internet_source_unknown">未知</string>
+</resources>
