@@ -1,41 +1,34 @@
 package com.shilapi.xcertplay.diagnostics
 
 import android.content.Context
-import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkCapabilities
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.Mockito.mock
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.mockito.Mockito.mock
-import org.mockito.Mockito.`when` as whenever
 
-/** The exit is judged from the car hotspot's reachability, not from per-packet attribution. */
+/**
+ * The exit is judged from the car hotspot's reachability, not from per-packet attribution.
+ *
+ * The probe itself is injected, so these tests cover the decision table without a socket.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], manifest = Config.NONE)
 class InternetSourceProbeTest {
 
     private val context: Context get() = RuntimeEnvironment.getApplication()
 
-    private fun network(withInternet: Boolean = true): Network {
-        val network = mock(Network::class.java)
-        val capabilities = mock(NetworkCapabilities::class.java)
-        whenever(capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)).thenReturn(withInternet)
-        val manager = context.getSystemService(ConnectivityManager::class.java)
-        // Robolectric's manager answers for the shadow; stub it so decide() can read capabilities.
-        whenever(manager.getNetworkCapabilities(network)).thenReturn(capabilities)
-        return network
-    }
+    /** A stand-in network; only the injected probe decides, so its identity does not matter. */
+    private val anyNetwork: Network get() = mock(Network::class.java)
 
     @Test
     fun aReachableHotspotMeansTheCarNetwork() {
-        val car = network()
-        val result = InternetSourceProbe.decide(context, car, wireless = true, probe = { true })
+        val result = InternetSourceProbe.decide(context, anyNetwork, wireless = true, probe = { true })
         assertEquals(InternetSourceProbe.Source.CAR, result.source)
         assertTrue(result.carHasInternet)
         assertTrue(result.wireless)
@@ -43,8 +36,7 @@ class InternetSourceProbeTest {
 
     @Test
     fun anUnreachableHotspotMeansThePhoneNetwork() {
-        val car = network()
-        val result = InternetSourceProbe.decide(context, car, wireless = true, probe = { false })
+        val result = InternetSourceProbe.decide(context, anyNetwork, wireless = true, probe = { false })
         assertEquals(InternetSourceProbe.Source.PHONE, result.source)
         assertFalse(result.carHasInternet)
     }
@@ -58,8 +50,7 @@ class InternetSourceProbeTest {
 
     @Test
     fun aWiredSessionReportsUsbAndTheCarsOwnState() {
-        val car = network()
-        val result = InternetSourceProbe.decide(context, car, wireless = false, probe = { true })
+        val result = InternetSourceProbe.decide(context, anyNetwork, wireless = false, probe = { true })
         assertEquals(InternetSourceProbe.Source.USB, result.source)
         assertTrue(result.carHasInternet)
         assertFalse(result.wireless)
@@ -70,5 +61,15 @@ class InternetSourceProbeTest {
         val result = InternetSourceProbe.decide(context, carNetwork = null, wireless = false, probe = { true })
         assertEquals(InternetSourceProbe.Source.USB, result.source)
         assertFalse(result.carHasInternet)
+    }
+
+    @Test
+    fun aWiredSessionStillChecksTheCarsOwnConnectivityForContext() {
+        var probed = false
+        val result = InternetSourceProbe.decide(context, anyNetwork, wireless = false, probe = { probed = true; true })
+        // The exit is the phone's, but the car's own state is reported for context, so it is probed.
+        assertTrue(probed)
+        assertTrue(result.carHasInternet)
+        assertEquals(InternetSourceProbe.Source.USB, result.source)
     }
 }

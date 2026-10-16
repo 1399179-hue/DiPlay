@@ -2624,7 +2624,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply { topMargin = dp(6) },
         )
-        val sourceView = menuText("", 14f, MUTED)
+        val sourceView = menuText("", 14f, MENU_SECONDARY)
         sourceView.visibility = View.GONE
         internetSourceView = sourceView
         content.addView(sourceView, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4) })
