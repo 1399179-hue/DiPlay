@@ -96,11 +96,12 @@ class MediaClockTrimTest {
 
     @Test fun withoutNewAudioTheTrimHolds() {
         val trim = MediaClockTrim(48_000, 14_400)
+        // Half the buffer missing is a supply problem, not drift: the error is clamped to 0.25.
         trim.sample(7_200, 0)
-        assertEquals(47_280, trim.rateDue(0))
+        assertEquals(47_640, trim.rateDue(0))
         // The iPhone paused: no write for 2 s, so no update even though the last level was low.
         assertNull(trim.rateDue(2_000_000_000L))
-        assertEquals(47_280, trim.rate)
+        assertEquals(47_640, trim.rate)
         // Music resumes at the target level: the average restarts there.
         trim.sample(14_400, 2_100_000_000L)
         assertEquals(48_000, trim.rateDue(2_100_000_000L))
@@ -113,8 +114,8 @@ class MediaClockTrimTest {
         // Five minutes later music resumes with a short first burst: one step, not 300 s, is integrated.
         val resumeNs = 300_000_000_000L
         trim.sample(10_080, resumeNs)
-        assertEquals(47_539, trim.rateDue(resumeNs))
-        assertEquals(-0.0006, MediaClockTrim.learnedTrim, 1e-9)
+        assertEquals(47_616, trim.rateDue(resumeNs))
+        assertEquals(-0.0005, MediaClockTrim.learnedTrim, 1e-9)
     }
 
     @Test fun aNewStreamStartsFromTheLearnedTrim() {
@@ -127,7 +128,7 @@ class MediaClockTrimTest {
     @Test fun updatesComeAtMostOnceASecond() {
         val trim = MediaClockTrim(48_000, 14_400)
         trim.sample(7_200, 0)
-        assertEquals(47_280, trim.rateDue(0))
+        assertEquals(47_640, trim.rateDue(0))
         trim.sample(14_400, 500_000_000L)
         assertNull(trim.rateDue(500_000_000L))
     }
