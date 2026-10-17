@@ -5072,11 +5072,11 @@ class CarPlayHostActivity : ComponentActivity() {
             when {
                 !config.locationReportingEnabled -> null
                 config.identification.vehicleSpeedEnabled -> VehicleSpeedLocationProvider(
-                    AndroidCarPlayLocationProvider(this),
+                    AndroidCarPlayLocationProvider(this, precise = true),
                     if (BridgeVehicleSpeedSource.enabled(this)) BridgeVehicleSpeedSource(applicationContext)
                     else com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
                 )
-                else -> AndroidCarPlayLocationProvider(this)
+                else -> AndroidCarPlayLocationProvider(this, precise = true)
             }
         appendLog(
             "Starting CarPlay controller at ${size.width}x${size.height} -> " +
