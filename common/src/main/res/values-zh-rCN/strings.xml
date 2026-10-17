@@ -937,43 +937,4 @@
     <string name="settings_launcher_bubble_unlocked">位置已解锁</string>
     <string name="settings_launcher_bubble_hold_to_lock">长按 锁定</string>
     <string name="settings_launcher_bubble_hold_to_unlock">长按 解锁</string>
-
-    <!-- New settings shell (overview / search / advanced). -->
-    <string name="settings_overview">概览</string>
-    <string name="settings_overview_subtitle">舒适可靠驾驶所需的基本设置。</string>
-    <string name="settings_your_setup">你的设置</string>
-    <string name="settings_quick_settings">快捷设置</string>
-    <string name="settings_display">显示</string>
-    <string name="settings_navigation">导航</string>
-    <string name="settings_vehicle">车辆</string>
-    <string name="settings_advanced">高级</string>
-    <string name="settings_advanced_subtitle">面向上级用户的实验性与车型专属控制项</string>
-    <string name="settings_advanced_caution_title">更改前请谨慎</string>
-    <string name="settings_advanced_caution_description">这些功能可能依赖车机固件、ADB 授权或实验性的 CarPlay 行为。日常设置请在上方分类中调整。</string>
-    <string name="settings_search">搜索</string>
-    <string name="settings_search_hint">搜索设置</string>
-    <string name="settings_search_empty">没有匹配的设置，换个词试试。</string>
-    <string name="settings_open_category">打开「%1$s」设置</string>
-    <string name="settings_ready_connected">CarPlay 已启用。需要重新连接的更改会另行提示。</string>
-    <string name="settings_ready_wireless">无线 CarPlay 将连接到 %1$s。</string>
-    <string name="settings_ready_usb">用 USB 数据线连接 iPhone 以启动 CarPlay。</string>
-    <string name="settings_connecting_description">LYNK&amp;CO 正在与你的 iPhone 建立 CarPlay。</string>
-    <string name="settings_choose_iphone_title">选择你的 iPhone</string>
-    <string name="settings_choose_iphone_description">无线 CarPlay 需要先配对一台 iPhone 才能连接。</string>
-    <string name="settings_choose_iphone_action">选择 iPhone</string>
-    <string name="settings_connection_summary">手机、数据线、无线与自动连接</string>
-    <string name="settings_display_summary">外观、全屏、分辨率与帧率</string>
-    <string name="settings_audio_summary">扬声器路由与音乐缓冲</string>
-    <string name="settings_navigation_summary">位置上报与支持的仪表导航</string>
-    <string name="settings_vehicle_summary">驾驶侧、方向盘按键、车辆按键与 CarPlay 手势</string>
-    <string name="settings_reconnect_pending">已保存。部分更改会在 CarPlay 重新连接后生效。</string>
-    <string name="settings_reconnect_now">立即重连</string>
-    <string name="settings_byd_navigation_unavailable">此车机不支持 BYD 仪表与 HUD 导航。</string>
-    <string name="settings_advanced_media">视频与音频</string>
-    <string name="settings_wheel_keys">方向盘按键</string>
-    <string name="settings_experimental_display">显示（实验性）</string>
-    <string name="settings_diagnostics_summary">排查连接问题时保存一份本地报告</string>
-    <string name="settings_full_screen_description">在 LYNK&amp;CO 与 CarPlay 中隐藏状态栏和导航栏。</string>
-    <string name="settings_vehicle_description">车辆与仪表功能因车型和固件而异。启用实验性控制项前，请先在高级设置中查看。</string>
-    <string name="settings_open_advanced">打开高级设置</string>
 </resources>
