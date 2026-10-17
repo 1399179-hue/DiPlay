@@ -47,7 +47,7 @@ internal object GeelySteeringKeyCodes {
     }
 
     fun enabledByDefault(): Boolean = Build.MODEL.orEmpty().uppercase().let { model ->
-        listOf("G636", "FX11", "KX11", "G733", "L6").any(model::contains)
+        listOf("G636", "FX11", "KX11", "G733", "L6", "CS11_A4", "CS11A4").any(model::contains)
     }
 
     /**
