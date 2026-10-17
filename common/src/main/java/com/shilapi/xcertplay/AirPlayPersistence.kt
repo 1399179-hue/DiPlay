@@ -76,6 +76,8 @@ object AirPlayPersistence {
     private const val KEY_MAIN_BUFFERED_AUDIO = "main_buffered_audio"
     private const val KEY_AUDIO_MUSIC_RATE = "audio_music_rate"
     private const val KEY_WIRELESS_OPUS = "wireless_opus"
+    private const val KEY_LAUNCHER_BUBBLE = "launcher_bubble"
+    private const val KEY_LAUNCHER_BUBBLE_SIZE = "launcher_bubble_size"
     private const val KEY_CAR_BLUETOOTH_AUDIO = "car_bluetooth_audio"
     private const val KEY_CALL_ECHO_CANCELLATION = "call_echo_cancellation"
     private const val KEY_CALL_VOICE_FILTER = "call_voice_filter"
@@ -643,6 +645,25 @@ object AirPlayPersistence {
             opusEnabled = loadWirelessOpus(context),
             music = base.music.copy(sampleRate = loadAudioMusicRate(context)),
         )
+    }
+
+    /** A shortcut over the launcher's home screen that comes back to CarPlay (LauncherBubble). */
+    fun loadLauncherBubble(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_LAUNCHER_BUBBLE, false)
+
+    fun saveLauncherBubble(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_LAUNCHER_BUBBLE, enabled).apply()
+    }
+
+    /** Bubble height as a share of the screen height; the bubble width follows the icon's ratio. */
+    fun loadLauncherBubbleSize(context: Context): Int = LauncherBubbleLayout.snapSizePercent(
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt(KEY_LAUNCHER_BUBBLE_SIZE, LauncherBubbleLayout.DEFAULT_SIZE_PERCENT),
+    )
+
+    fun saveLauncherBubbleSize(context: Context, percent: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_LAUNCHER_BUBBLE_SIZE, LauncherBubbleLayout.snapSizePercent(percent)).apply()
     }
 
     /** Offer no CarPlay audio, so the iPhone keeps audio on its Bluetooth link with the car; applies at reconnect. */
