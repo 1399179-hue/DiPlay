@@ -22,7 +22,15 @@ object AppLocale {
     const val SPANISH = "es"
     const val UKRAINIAN = "uk"
 
+    /** Every value that was ever persisted, so an old choice still resolves after an update. */
     val ALL = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN)
+
+    /**
+     * Languages LYNK&CO actually ships: English and Simplified Chinese. The other locales only keep
+     * the older upstream screens, so they are no longer offered here — an untranslated setting falls
+     * back to English, and a stale saved value still resolves through [ALL].
+     */
+    val PICKER = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE)
 
     private const val PREFS = "diplay"
     private const val KEY_LANGUAGE = "app_language"
@@ -107,15 +115,19 @@ object AppLocale {
     }
 
     fun showPicker(activity: Activity) {
-        var selected = ALL.indexOf(preference(activity)).coerceAtLeast(0)
+        val current = preference(activity)
+        // A language saved before the picker was narrowed still shows as the selected row instead
+        // of silently jumping to "system default".
+        val offered = if (current in PICKER) PICKER else PICKER + current
+        var selected = offered.indexOf(current).coerceAtLeast(0)
         activity.appDialogBuilder()
             .setTitle(R.string.language_app_language)
-            .setSingleChoiceItems(ALL.map { displayName(activity, it) }.toTypedArray(), selected) { _, index ->
+            .setSingleChoiceItems(offered.map { displayName(activity, it) }.toTypedArray(), selected) { _, index ->
                 selected = index
             }
             .setPositiveButton(R.string.language_apply) { _, _ ->
-                val next = ALL[selected]
-                if (next != preference(activity)) {
+                val next = offered[selected]
+                if (next != current) {
                     save(activity, next)
                     // LocaleManager recreates activities itself on Android 13+.
                     if (Build.VERSION.SDK_INT < 33) activity.recreate()
