@@ -915,4 +915,26 @@
     <string name="settings_audio_rate_441">44.1 kHz</string>
     <string name="settings_wireless_opus">无线语音优先 Opus</string>
     <string name="settings_wireless_opus_description">向手机声明无线提示音与语音可用 Opus；关闭后回退 AAC-ELD。音乐始终为 AAC-LC。重连后生效。</string>
+    <string name="car_hotspot_config_title">车载热点配置</string>
+    <string name="car_hotspot_config_not_read">尚未读取车机热点配置。</string>
+    <string name="car_hotspot_config_read">读取车机热点配置</string>
+    <string name="car_hotspot_config_reading">正在读取车机热点配置…</string>
+    <string name="car_hotspot_config_value">车机热点：%1$s（%2$s）</string>
+    <string name="car_hotspot_config_unavailable">读取失败（%1$s）。</string>
+    <string name="car_hotspot_config_write">写入新密码到车机</string>
+    <string name="car_hotspot_config_read_first">请先读取车机热点配置。</string>
+    <string name="car_hotspot_config_write_unsupported">该加密方式不支持改写。</string>
+    <string name="car_hotspot_config_new_password">新密码（至少 8 位）</string>
+    <string name="car_hotspot_config_write_hint">只替换密码，SSID 保持「%1$s」不变。写入需要车机 ADB 授权。</string>
+    <string name="car_hotspot_config_password_too_short">密码至少 8 位。</string>
+    <string name="car_hotspot_config_writing">正在写入…</string>
+    <string name="car_hotspot_config_written">已写入。车机热点：%1$s</string>
+    <string name="car_hotspot_config_write_failed">写入失败（%1$s）。</string>
+    <string name="settings_launcher_bubble">桌面悬浮球（实验性）</string>
+    <string name="settings_launcher_bubble_description">在车机桌面显示一个 DiPlay 悬浮球：点它直接回到 CarPlay，可拖动位置；打开 DiPlay 时自动隐藏，离开后重新出现。长按锁定位置，再次长按解锁。需要“显示在其他应用上层”权限。</string>
+    <string name="settings_launcher_bubble_size">悬浮球大小</string>
+    <string name="settings_launcher_bubble_locked">位置已锁定</string>
+    <string name="settings_launcher_bubble_unlocked">位置已解锁</string>
+    <string name="settings_launcher_bubble_hold_to_lock">长按 锁定</string>
+    <string name="settings_launcher_bubble_hold_to_unlock">长按 解锁</string>
 </resources>
