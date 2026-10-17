@@ -189,4 +189,11 @@ object CarHotspotTethering {
             startupLock.unlock()
         }
     }
+
+    /** Readable one-line reason for a reflected call failure; used by the hotspot config reader/writer. */
+    internal fun describe(error: Throwable): String {
+        val cause = (error as? InvocationTargetException)?.targetException ?: error
+        val reason = cause.javaClass.simpleName + (cause.message?.let { ": ${it.take(100)}" } ?: "")
+        return if (cause === error) reason else "${error.javaClass.simpleName} caused by $reason"
+    }
 }
