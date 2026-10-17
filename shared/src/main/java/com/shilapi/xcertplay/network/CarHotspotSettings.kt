@@ -18,4 +18,10 @@ object CarHotspotSettings {
 
     fun shouldEnable(context: Context, wireless: Boolean, mode: WirelessHotspotMode): Boolean =
         enabled(context) && wireless && mode == WirelessHotspotMode.MANUAL
+
+    /** Set once the driver saved a passphrase from the settings screen; gates the config write path. */
+    fun configWrite(context: Context): Boolean = prefs(context).getBoolean("config_write", false)
+
+    fun setConfigWrite(context: Context, enabled: Boolean) =
+        prefs(context).edit().putBoolean("config_write", enabled).apply()
 }
