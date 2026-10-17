@@ -274,7 +274,16 @@ internal class AudioFocusCoordinator(
     private fun applyVolume(track: AudioTrack, entry: Entry, volume: Float) {
         if (entry.appliedVolume == volume) return
         val applied = runCatching { track.setVolume(volume) == AudioTrack.SUCCESS }.getOrDefault(false)
-        if (applied) entry.appliedVolume = volume
+        if (!applied) return
+        val previous = entry.appliedVolume
+        entry.appliedVolume = volume
+        // One line per real change (not per tick), so "how long was the music ducked, and how long
+        // until it came back?" can be answered from logcat on a car head unit we cannot instrument.
+        report(
+            "Audio: volume ${entry.channel} $previous -> $volume " +
+                "nav=${active.values.any { it.channel == AudioChannel.NAVIGATION }} " +
+                "speech=$speechPlaying suppressed=$mediaSuppressed mediaPlaying=$mediaPlaying focus=$focusHeld",
+        )
     }
 
     /** Upstream focus policy remains the default; explicit vehicle routing keeps its ownership policy. */
