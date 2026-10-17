@@ -172,7 +172,10 @@ class CarPlayMediaEngine(
             (stream["audioFormat"] as? Number)?.toLong() ?: 0L,
             type,
             audioType,
-        ).copy(latencyMs = latencyMs)
+        ).copy(
+            latencyMs = latencyMs,
+            framesPerPacket = (stream["framesPerPacket"] as? Number)?.toInt()?.takeIf { it > 0 },
+        )
         Log.i(
             TAG,
             "airplay audio format type=$type audioType=$audioType codec=${format.codec} " +
