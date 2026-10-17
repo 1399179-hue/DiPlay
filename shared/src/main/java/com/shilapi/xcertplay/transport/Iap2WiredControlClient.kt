@@ -57,7 +57,7 @@ class Iap2WiredControlClient(
 
         var forwardedFrames = 0
         var carPlayStartSessions = 0
-        val location = Iap2LocationReporter(locationProvider, onProgress)
+        val location = Iap2LocationReporter(locationProvider, onProgress, unsolicited = true)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
             while (true) {
