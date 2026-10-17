@@ -112,7 +112,12 @@ class AndroidMediaSink(
         appContext,
         audioFocusEnabled,
         audioFocusAutoYield,
-        onAudioDiagnostic,
+        // The session log file is optional and absent on most head units, so a duck would leave no
+        // trace at all. Volume transitions are two lines per announcement; send them to logcat too.
+        { message ->
+            if (message.startsWith("Audio: volume")) Log.i(TAG, message)
+            onAudioDiagnostic(message)
+        },
         factoryRouting = factoryAudio != null && !bluetoothOutput,
         unifiedMediaOutput = unifiedMediaOutput,
         onOwnershipChanged = { owned -> ownsAudio = owned; audioOwnershipListener?.invoke(owned) },
@@ -1716,6 +1721,12 @@ private class AudioRenderer(
     private val mediaLagGuard =
         if (format.audioType.equals("media", true)) MediaPacketLagGuard(format.rtpClockRate) else null
     @Volatile private var newestRtpSample = 0
+    /** RTP timestamp of the packet handed to the decoder last, used to spot audio the phone never sent. */
+    @Volatile private var lastPlayedRtpSample = -1
+    private var concealedFrames = 0L
+    private var concealmentEvents = 0
+    /** Last 16-bit sample written, so a concealed gap can ramp to silence instead of stepping to it. */
+    private var lastWrittenPcmSample = 0
     private var lagRecoveryReports = 0
     @Volatile private var running = true
     @Volatile private var started = false
@@ -1796,8 +1807,10 @@ private class AudioRenderer(
             if (removed > 0) {
                 packetsDropped.addAndGet(removed)
                 // The splice jumps forward by the discarded stretch; fade the next buffer in so
-                // the cut is a soft step instead of a click.
+                // the cut is a soft step instead of a click. This skip is deliberate: do not pad
+                // the stretch back as silence, or the latency we just removed returns.
                 fadeApplied = false
+                lastPlayedRtpSample = -1
                 if (lagRecoveryReports < MAX_AUDIO_EVENT_REPORTS) {
                     lagRecoveryReports++
                     report("Audio: stale media packet backlog recovered audioType=${format.audioType} " +
@@ -1816,8 +1829,9 @@ private class AudioRenderer(
             queue.poll()
             packetsDropped.incrementAndGet()
             // Dropping the oldest packet is an audible jump forward in the waveform: fade the next
-            // buffer in so it lands as a soft step instead of a click.
+            // buffer in so it lands as a soft step instead of a click. Deliberate skip: no padding.
             fadeApplied = false
+            lastPlayedRtpSample = -1
             if (!droppedPacketsLogged) {
                 droppedPacketsLogged = true
                 Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
@@ -2230,10 +2244,83 @@ private class AudioRenderer(
             .putLong(OPUS_SEEK_PRE_ROLL_NANOS)
             .array()
 
+    /**
+     * Fills audio the phone never delivered with silence instead of splicing the two neighbours.
+     *
+     * A lost RTP packet is a hole in the song, not a reason to move the song earlier: skipping
+     * ahead shortens the track by the lost duration and drags the whole session out of step with
+     * the video, which is what "the lyrics jumped forward" looked like on the reference car
+     * (measured: 127 lost packets in 13.5 minutes, up to 13 in one burst = 277 ms). Writing the
+     * missing duration as silence keeps the timeline where the phone put it. Music only: padding a
+     * guidance prompt would delay the announcement and stretch the duck.
+     */
+    private fun concealMissingAudio(packet: AudioPacket, rtp: ByteArray) {
+        val previous = lastPlayedRtpSample
+        if (previous < 0) {
+            lastPlayedRtpSample = packet.sample
+            return
+        }
+        if (mappedChannel != AudioChannel.MEDIA) return
+        val framesInPacket = framesPerPacket(rtp)
+        if (framesInPacket <= 0) return
+        // Unsigned subtraction: the RTP timestamp wraps every ~24 hours at 48 kHz.
+        val delta = (packet.sample.toLong() - previous.toLong()) and 0xffff_ffffL
+        // A packet behind the watermark is late or duplicated. Keep the watermark where it is, or
+        // the next in-order packet would look like a huge gap and pad the song with silence.
+        if (delta == 0L || delta > 0x7fff_ffffL) return
+        lastPlayedRtpSample = packet.sample
+        if (delta <= framesInPacket) return
+        val missing = delta - framesInPacket
+        // A jump beyond a second is a restarted stream, not a lost packet; padding it would add
+        // a second of silence to every seek.
+        val rate = format.sampleRate.coerceAtLeast(1)
+        if (missing > rate.toLong()) return
+        writeConcealedSilence(missing.toInt())
+        concealedFrames += missing
+        concealmentEvents++
+        if (concealmentEvents <= MAX_AUDIO_EVENT_REPORTS) {
+            report(
+                "Audio: concealed missing audio frames=$missing ms=${missing * 1000L / rate} " +
+                    "codec=${format.codec} total=${concealedFrames * 1000L / rate}ms",
+            )
+        }
+    }
+
+    /** Frame count carried by one packet, so a gap can be told apart from a contiguous packet. */
+    private fun framesPerPacket(rtp: ByteArray): Int = when (format.codec) {
+        AudioCodecKind.LPCM -> (rtp.size - RTP_HEADER_BYTES).coerceAtLeast(0) / frameBytes
+        else -> (format.framesPerPacket ?: 0).takeIf { it > 0 } ?: 1024
+    }
+
+    /** Silence for the lost stretch, ramped out of the last sample so the cut does not click. */
+    private fun writeConcealedSilence(frames: Int) {
+        val total = frames * frameBytes
+        if (total <= 0) return
+        val silence = ByteArray(total)
+        val rampFrames = minOf(frames, format.sampleRate / 200) // 5 ms
+        val step = lastWrittenPcmSample.toFloat() / rampFrames.coerceAtLeast(1)
+        for (frame in 0 until rampFrames) {
+            val value = (lastWrittenPcmSample - step * (frame + 1)).toInt().toShort()
+            val low = (value.toInt() and 0xFF).toByte()
+            val high = ((value.toInt() shr 8) and 0xFF).toByte()
+            for (channel in 0 until pcmChannels) {
+                val index = frame * frameBytes + channel * 2
+                silence[index] = low
+                silence[index + 1] = high
+            }
+        }
+        lastWrittenPcmSample = 0
+        writePcm(silence)
+        // Fade the next real buffer in so the return from silence is a step, not a click. Set after
+        // the write: writePcm consumes the flag for the buffer it is given, and that buffer is silence.
+        fadeApplied = false
+    }
+
     private fun handle(packet: AudioPacket) {
         // The queue drained, so the overflow (if any) has passed: allow the next one to be reported.
         if (queue.isEmpty()) droppedPacketsLogged = false
         val rtp = packet.rtp
+        concealMissingAudio(packet, rtp)
         when (format.codec) {
             AudioCodecKind.LPCM -> writePcm(byteSwapS16(rtp.copyOfRange(12, rtp.size)))
             AudioCodecKind.AAC_LC -> {
@@ -2466,6 +2553,11 @@ private class AudioRenderer(
                     ambientBass.rms(data, offset + written, count))
             }
             written += count
+            if (written >= 2) {
+                val tail = offset + written - 2
+                lastWrittenPcmSample =
+                    ((data[tail].toInt() and 0xFF) or (data[tail + 1].toInt() shl 8)).toShort().toInt()
+            }
             totalWrittenFrames += framesWritten
             writtenFramesThisWindow += framesWritten
             bufferProgress.written(count)
@@ -2615,6 +2707,7 @@ private class AudioRenderer(
             "lastWriteError=${lastWriteErrorCode ?: "none"} zeroWrites=$zeroWritesThisWindow " +
             "partialWrites=$partialWritesThisWindow " +
             "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount " +
+            "concealedMs=${concealedFrames * 1000L / format.sampleRate.coerceAtLeast(1)} " +
             "playbackRate=${clockTrim?.rate ?: -1} ended=$force"
         Log.i(STATS_TAG, line)
         report(line)
@@ -2725,6 +2818,7 @@ private class AudioRenderer(
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         /** Report each rebuffer/queue-full event at most this many times, so the report stays readable. */
         const val MAX_AUDIO_EVENT_REPORTS = 5
+        const val RTP_HEADER_BYTES = 12
         // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
         const val MAX_QUEUED_PACKETS = 192
         const val PREBUFFER_WRITE_CHUNK_BYTES = 2 * 1024
