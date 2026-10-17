@@ -116,7 +116,7 @@ class AndroidMediaSink(
         // trace at all. Volume transitions are two lines per announcement; send them to logcat too.
         { message ->
             if (message.startsWith("Audio: volume") || message.startsWith("Audio: concealed")) {
-                Log.i(TAG, message)
+                Log.i("xcertplay-usb", message)
             }
             onAudioDiagnostic(message)
         },
