@@ -1690,6 +1690,10 @@ class CarPlayController(
         return try {
             tunnelExecutor.execute {
                 try {
+                    // The control client stops the provider when its loop ends, and a second type-130
+                    // stream can be accepted inside the same AirPlay session. start() is idempotent, so
+                    // asking again here is what keeps the second tunnel from running with a dead source.
+                    if (config.locationReportingEnabled) locationProvider?.start()
                     val result = Iap2WirelessControlClient(
                         session = channel,
                         mfi = Iap2MfiAuthenticationClient(mfi),
@@ -1697,11 +1701,14 @@ class CarPlayController(
                         identification = identification,
                         endpoint = endpoint,
                         timeoutMillis = Iap2WirelessControlClient.NO_TIMEOUT_MILLIS,
-                        // Location and vehicle data stay on the Bluetooth bootstrap, which declared
-                        // them first; iOS refuses a second endpoint for the same data, so this link
-                        // neither declares nor sends them.
-                        locationProvider = null,
-                        vehicleStatusProvider = null,
+                        // This is the link that carries location and vehicle data on wireless: the
+                        // bootstrap declares neither (see forWirelessLink), so leaving these null here
+                        // meant the tunnel advertised LocationInformation and accepted the phone's
+                        // subscription while having no source to answer it with - the session ran with
+                        // no location at all. The client already builds an Iap2LocationReporter and
+                        // ticks it, so it only ever needed the provider.
+                        locationProvider = locationProvider,
+                        vehicleStatusProvider = vehicleStatusProvider,
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
