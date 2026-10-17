@@ -64,8 +64,12 @@ import com.shilapi.xcertplay.media.AmbientColorSpeed
 import com.shilapi.xcertplay.media.AmbientMusicController
 import com.shilapi.xcertplay.media.AmbientMusicSettings
 import com.shilapi.xcertplay.media.MicrophoneGain
+import com.shilapi.xcertplay.network.CarHotspotConfigRead
+import com.shilapi.xcertplay.network.CarHotspotConfigWrite
+import com.shilapi.xcertplay.network.CarHotspotSavedCredentials
 import com.shilapi.xcertplay.network.CarHotspotSettings
 import com.shilapi.xcertplay.network.CarHotspotTethering
+import com.shilapi.xcertplay.network.HotspotCredentials
 import com.shilapi.xcertplay.network.WifiP2pChannels
 import com.shilapi.xcertplay.orchestration.ManualHotspotSecurity
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
@@ -97,6 +101,7 @@ internal enum class SettingsSection {
     CONNECTION_SETUP,
     DIAGNOSTICS,
     AUTOMATIC_CONNECTION,
+    CAR_HOTSPOT,
     BYD_ADB,
     DISPLAY_AND_PERFORMANCE,
     EXPERIMENTAL_DISPLAY,
@@ -107,6 +112,7 @@ internal enum class SettingsSection {
     NAVIGATION_WHEEL,
     LOCATION,
     CLUSTER_MAP,
+    LAUNCHER_BUBBLE,
     BYD_NAVIGATION,
     GEELY_NAVIGATION,
     VEHICLE_MAP,
@@ -124,6 +130,7 @@ internal object SettingsInformationArchitecture {
         SettingsCategory.CONNECTION to setOf(
             SettingsSection.CONNECTION_SETUP,
             SettingsSection.AUTOMATIC_CONNECTION,
+            SettingsSection.CAR_HOTSPOT,
             SettingsSection.BYD_ADB,
             SettingsSection.PERMISSIONS_AND_HELP,
         ),
@@ -140,6 +147,7 @@ internal object SettingsInformationArchitecture {
         SettingsCategory.DIAGNOSTICS to setOf(SettingsSection.DIAGNOSTICS),
         SettingsCategory.ADVANCED to setOf(
             SettingsSection.CLUSTER_MAP,
+            SettingsSection.LAUNCHER_BUBBLE,
             SettingsSection.VEHICLE_MAP,
             SettingsSection.EXPERIMENTAL_DISPLAY,
             SettingsSection.ADVANCED_MEDIA,
@@ -489,6 +497,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         // Results from the image picker and crop screens arrive before onResume.
         enforceInterfaceSize()
         CenterMapOverlay.onDiPlayScreenShown()
+        LauncherBubble.attach(this)
+        LauncherBubble.onAppScreenShown()
     }
 
     override fun onStop() {
@@ -497,7 +507,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         clusterSafeAreaDialog?.dismiss()
         startupHotspotCancelled = true
         super.onStop()
-        if (!isFinishing && !isChangingConfigurations) CenterMapOverlay.scheduleShow()
+        if (!isFinishing && !isChangingConfigurations) {
+            CenterMapOverlay.scheduleShow()
+            LauncherBubble.scheduleShow()
+        }
     }
 
     override fun onResume() {
@@ -1673,6 +1686,10 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(label(getString(R.string.boot_start_repair_desc), 14, MUTED).apply { setPadding(0, dp(8), 0, dp(6)) })
             card.addView(button("${getString(R.string.choose_iphone_prefix)}${DiPlayPreferences.phoneName(this)}", false) { choosePhone() }, matchButton(12, 60))
         }
+        filteredSection(content, SettingsSection.CAR_HOTSPOT,
+            getString(R.string.car_hotspot_config_title), R.drawable.ic_dp_connect) { card ->
+            carHotspotConfigControls(card)
+        }
         filteredSection(content, SettingsSection.DISPLAY_AND_PERFORMANCE,
             getString(R.string.display_and_performance), R.drawable.ic_dp_display) { card ->
             val appearances = AppAppearance.entries
@@ -1982,6 +1999,33 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             }, matchButton(0, 60))
         }
         // Cluster video does not require a BYD navigation broadcast receiver.
+        // 桌面悬浮球：部分车机桌面只列自家卡片，装好的 App 不会出现在首页，所以由应用自己画一个入口。
+        filteredSection(content, SettingsSection.LAUNCHER_BUBBLE,
+            getString(R.string.settings_launcher_bubble), R.drawable.ic_carplay) { card ->
+            toggle(card, getString(R.string.settings_launcher_bubble),
+                getString(R.string.settings_launcher_bubble_description),
+                AirPlayPersistence.loadLauncherBubble(this)) { enabled ->
+                AirPlayPersistence.saveLauncherBubble(this, enabled)
+                if (enabled && !LauncherBubble.permitted(this)) openOverlayPermission()
+                if (!enabled) LauncherBubble.hide()
+            }
+            if (AirPlayPersistence.loadLauncherBubble(this)) {
+                val sizes = LauncherBubbleLayout.sizePercents
+                choice(card, getString(R.string.settings_launcher_bubble_size),
+                    sizes.map { getString(R.string.percent_value, it) },
+                    sizes.indexOf(AirPlayPersistence.loadLauncherBubbleSize(this)).coerceAtLeast(0),
+                    reconnects = false) {
+                    AirPlayPersistence.saveLauncherBubbleSize(this, sizes[it])
+                }
+                val overlay = LauncherBubble.permitted(this)
+                card.addView(label(
+                    if (overlay) getString(R.string.center_map_overlay_allowed)
+                    else getString(R.string.center_map_overlay_missing, packageName),
+                    14,
+                    if (overlay) MUTED else WARNING,
+                ))
+            }
+        }
         filteredSection(content, SettingsSection.CLUSTER_MAP,
             getString(R.string.carplay_map_on_instrument_cluster_experimental), R.drawable.ic_dp_dashboard) { card ->
             reconnectingToggle(card, getString(R.string.adb_cluster_activity_mode),
@@ -3163,6 +3207,87 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         AirPlayPersistence.saveManualHotspotBand(this, com.shilapi.xcertplay.orchestration.ManualHotspotBand.AUTO)
         AirPlayPersistence.saveManualHotspotChannel(this, 0)
         markReconnectNeeded()
+    }
+
+    /**
+     * 车机热点配置读写（借鉴 shihabal3amri/DiPlay 的 08386dbc 系列）。
+     *
+     * 读取只走只读接口，绝不改车机配置；写入只在用户确认后发生，且**只换密码**，
+     * SSID、加密方式、频段全部沿用车上已保存的值。
+     */
+    private fun carHotspotConfigControls(card: LinearLayout) {
+        val status = label(getString(R.string.car_hotspot_config_not_read), 15, MUTED)
+        card.addView(status)
+        var saved: CarHotspotSavedCredentials? = null
+        card.addView(button(getString(R.string.car_hotspot_config_read), false) {
+            status.text = getString(R.string.car_hotspot_config_reading)
+            Thread {
+                val outcome = CarHotspotConfigRead.read(this) { }
+                runOnUiThread {
+                    saved = outcome.credentials
+                    val found = outcome.credentials
+                    status.text = if (found != null) {
+                        getString(R.string.car_hotspot_config_value, found.ssid, securityTitle(found.security))
+                    } else {
+                        getString(R.string.car_hotspot_config_unavailable, outcome.reason?.name ?: "")
+                    }
+                }
+            }.start()
+        }, matchButton(12, 60))
+        card.addView(button(getString(R.string.car_hotspot_config_write), false) {
+            val known = saved
+            if (known == null) {
+                toast(getString(R.string.car_hotspot_config_read_first))
+                return@button
+            }
+            if (known.security != ManualHotspotSecurity.WPA2) {
+                toast(getString(R.string.car_hotspot_config_write_unsupported))
+                return@button
+            }
+            val dialogContext = appDialogContext()
+            val field = EditText(dialogContext).apply {
+                hint = getString(R.string.car_hotspot_config_new_password)
+                setSingleLine()
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+            appDialogBuilder()
+                .setTitle(getString(R.string.car_hotspot_config_write))
+                .setMessage(getString(R.string.car_hotspot_config_write_hint, known.ssid))
+                .setView(field)
+                .setPositiveButton(getString(R.string.save)) { _, _ ->
+                    val secret = field.text.toString()
+                    if (secret.length < 8) {
+                        toast(getString(R.string.car_hotspot_config_password_too_short))
+                        return@setPositiveButton
+                    }
+                    status.text = getString(R.string.car_hotspot_config_writing)
+                    Thread {
+                        CarHotspotSettings.setConfigWrite(this, true)
+                        val result = CarHotspotConfigWrite.write(
+                            this,
+                            HotspotCredentials(known.ssid, secret, known.security),
+                        ) { }
+                        runOnUiThread {
+                            status.text =
+                                if (result.result == CarHotspotConfigWrite.Result.WRITTEN) {
+                                    getString(R.string.car_hotspot_config_written, result.ssid ?: known.ssid)
+                                } else {
+                                    getString(R.string.car_hotspot_config_write_failed, result.result.name)
+                                }
+                        }
+                    }.start()
+                }
+                .setNegativeButton(getString(R.string.cancel), null)
+                .show()
+        }, matchButton(12, 60))
+    }
+
+    private fun securityTitle(security: ManualHotspotSecurity): String = when (security) {
+        ManualHotspotSecurity.OPEN -> getString(R.string.open)
+        ManualHotspotSecurity.WPA2 -> getString(R.string.wpa2)
+        ManualHotspotSecurity.WPA3_TRANSITION -> getString(R.string.wpa3_transition)
+        ManualHotspotSecurity.WPA3 -> getString(R.string.wpa3)
     }
 
     private fun askHotspotCredentials(existingWifi: Boolean = false, done: (String, String, ManualHotspotSecurity) -> Unit) {
