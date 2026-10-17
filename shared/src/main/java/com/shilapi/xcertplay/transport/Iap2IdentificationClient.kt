@@ -108,17 +108,26 @@ data class Iap2IdentificationConfig(
 
 /** The two iAP2 links used during one wireless CarPlay connection have different responsibilities. */
 internal enum class Iap2WirelessLinkRole {
-    /** Short-lived RFCOMM link used only to authenticate and hand the iPhone the Wi-Fi endpoint. */
+    /** RFCOMM link that authenticates, hands over the Wi-Fi endpoint and owns location/vehicle data. */
     BLUETOOTH_BOOTSTRAP,
 
-    /** Long-lived iAP2 DataStream inside the active Wi-Fi AirPlay session. */
+    /** Optional iAP2 DataStream inside the active Wi-Fi AirPlay session. */
     RUNTIME_TUNNEL,
 }
 
 /**
- * Builds identification for one wireless link. Long-lived accessory data must not be advertised on
- * Bluetooth: iOS can bind Location or Vehicle to that endpoint and reject the same data on Wi-Fi
- * after RFCOMM closes.
+ * Builds identification for one wireless link.
+ *
+ * iOS binds accessory Location and Vehicle data to the first endpoint that declares them and then
+ * refuses the same data on any later endpoint (accessoryd: "did not set location endpointUUID ...
+ * already set"). Exactly one link may own them.
+ *
+ * That owner has to be the Bluetooth bootstrap. The Wi-Fi type-130 tunnel is optional and, on head
+ * units without a CarPlay MFi coprocessor, the iPhone never opens it at all; the controller then
+ * keeps this Bluetooth link for iAP2 (WirelessActiveFallback). If the bootstrap did not declare
+ * location there would be no location channel for the entire session and the iPhone would have to
+ * fall back to its own GPS. Declaring them here instead is the pre-#157 behaviour, which iOS
+ * accepted.
  */
 internal fun Iap2IdentificationConfig.forWirelessLink(
     role: Iap2WirelessLinkRole,
@@ -126,12 +135,14 @@ internal fun Iap2IdentificationConfig.forWirelessLink(
 ): Iap2IdentificationConfig {
     val wirelessConfig = copy(wireless = wirelessIdentification)
     return when (role) {
-        Iap2WirelessLinkRole.BLUETOOTH_BOOTSTRAP -> wirelessConfig.copy(
+        // The only declarer, so iOS binds location and vehicle data here.
+        Iap2WirelessLinkRole.BLUETOOTH_BOOTSTRAP -> wirelessConfig
+        // Re-declaring the same data on the tunnel is what iOS rejects as 0xFFFB, so it must not.
+        Iap2WirelessLinkRole.RUNTIME_TUNNEL -> wirelessConfig.copy(
             locationInformationEnabled = false,
             vehicleStatusEnabled = false,
             vehicleSpeedEnabled = false,
         )
-        Iap2WirelessLinkRole.RUNTIME_TUNNEL -> wirelessConfig
     }
 }
 
