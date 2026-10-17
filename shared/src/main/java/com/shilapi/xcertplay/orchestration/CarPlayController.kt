@@ -42,6 +42,7 @@ import com.shilapi.xcertplay.hud.CarPlayHudGuidance
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.MfiAuthenticationClient
+import com.shilapi.xcertplay.mfi.MfiDeviceScanner
 import com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.LocalMfiAuthenticationClient
 import com.shilapi.xcertplay.network.CarPlayBonjour
@@ -1147,7 +1148,9 @@ class CarPlayController(
         }
     }
 
-    private val mfiCandidateAddresses = listOf(0x10, 0x11)
+    // Same candidates the scanner probes, from one place: this list is used to *choose between* the
+    // addresses the scan already found, so the two must not be able to drift apart.
+    private val mfiCandidateAddresses = MfiDeviceScanner.DEFAULT_CANDIDATE_ADDRESSES
     private val maxMfiCertificateBytes = 1280
 
     private data class MfiCandidateProbe(

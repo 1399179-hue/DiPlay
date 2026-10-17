@@ -259,7 +259,14 @@ internal object CarPlayMediaKeys {
             }
             bridgeBaseKeys = steeringProfile?.bindings?.filter { it.isVendorInput }
                 ?.map { GeelySteeringKeyCodes.canonicalize(it.keyCode) ?: it.keyCode }?.toIntArray()
-                ?: intArrayOf(200085, 200087, 200088, 200231, 210005, 210006)
+                ?: intArrayOf(
+                    GeelySteeringKeyCodes.MEDIA_PLAY_PAUSE,
+                    GeelySteeringKeyCodes.MEDIA_NEXT,
+                    GeelySteeringKeyCodes.MEDIA_PREVIOUS,
+                    GeelySteeringKeyCodes.VOICE_ASSIST,
+                    GeelySteeringKeyCodes.SEEK_NEXT,
+                    GeelySteeringKeyCodes.SEEK_PREVIOUS,
+                )
             // Learning is a passive observation; playback only uses acknowledged interception.
             updateBridgeKeys()
         }

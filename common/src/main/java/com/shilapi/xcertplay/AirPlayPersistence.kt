@@ -1238,18 +1238,47 @@ object AirPlayPersistence {
     }
 
     // Cluster mapping has its own key; never reuse the main display mapping at the same resolution.
-    fun loadClusterSafeAreaRect(context: Context): SafeAreaRect? =
-        SafeAreaCodec.decode(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString("cluster_safe_area_1920x720", null))?.clampTo(1920, 720)
+    //
+    // The key no longer carries the panel size. A key that says 1920x720 is a promise about the
+    // firmware that the storage cannot keep: on a cluster of another size the saved rect would be
+    // read back as if it were the right shape for the panel. The size still has to bound the rect,
+    // but it is now named once, in GeelyClusterDisplayTargets, rather than spelled into a key.
+    private const val KEY_CLUSTER_SAFE_AREA = "cluster_safe_area"
+
+    /** Read so a rect saved under the old resolution-named key is not lost on upgrade. */
+    private const val LEGACY_KEY_CLUSTER_SAFE_AREA = "cluster_safe_area_1920x720"
+
+    fun loadClusterSafeAreaRect(context: Context): SafeAreaRect? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val stored = prefs.getString(KEY_CLUSTER_SAFE_AREA, null)
+            ?: prefs.getString(LEGACY_KEY_CLUSTER_SAFE_AREA, null)
+            ?: return null
+        return SafeAreaCodec.decode(stored)?.clampTo(
+            GeelyClusterDisplayTargets.LYNK_03_WIDTH,
+            GeelyClusterDisplayTargets.LYNK_03_HEIGHT,
+        )
+    }
 
     fun saveClusterSafeAreaRect(context: Context, rect: SafeAreaRect) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("cluster_safe_area_1920x720", SafeAreaCodec.encode(rect.clampTo(1920, 720))).apply()
+            .putString(
+                KEY_CLUSTER_SAFE_AREA,
+                SafeAreaCodec.encode(
+                    rect.clampTo(
+                        GeelyClusterDisplayTargets.LYNK_03_WIDTH,
+                        GeelyClusterDisplayTargets.LYNK_03_HEIGHT,
+                    ),
+                ),
+            )
+            .remove(LEGACY_KEY_CLUSTER_SAFE_AREA)
+            .apply()
     }
 
     fun clearClusterSafeAreaRect(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove("cluster_safe_area_1920x720").apply()
+            .remove(KEY_CLUSTER_SAFE_AREA)
+            .remove(LEGACY_KEY_CLUSTER_SAFE_AREA)
+            .apply()
     }
 
     fun loadRightHandDrive(context: Context): Boolean =
