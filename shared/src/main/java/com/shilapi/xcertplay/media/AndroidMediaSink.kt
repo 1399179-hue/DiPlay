@@ -2228,6 +2228,13 @@ private class AudioRenderer(
                     )
                 }
             }
+            AudioCodecKind.AAC_ELD -> {
+                // AAC-ELD 是裸访问单元（无 ADTS 头），解码器按 csd-0 里的 AudioSpecificConfig 解析。
+                val accessUnit = rtp.copyOfRange(12, rtp.size)
+                if (accessUnit.isNotEmpty()) {
+                    feedCodec(accessUnit, sampleTimestampUs(packet.sample))
+                }
+            }
             AudioCodecKind.OPUS -> {
                 val accessUnit = rtp.copyOfRange(12, rtp.size)
                 if (accessUnit.size < MIN_OPUS_PACKET_BYTES) {
