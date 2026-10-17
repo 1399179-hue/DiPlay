@@ -1839,6 +1839,19 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
                 AirPlayPersistence.saveMainBufferedAudio(this, it)
                 reconnectIfRunning()
             }
+            choice(card, getString(R.string.settings_audio_music_rate), listOf(
+                getString(R.string.settings_audio_rate_48),
+                getString(R.string.settings_audio_rate_441),
+            ), if (AirPlayPersistence.loadAudioMusicRate(this) == 44_100) 1 else 0) {
+                AirPlayPersistence.saveAudioMusicRate(this, if (it == 1) 44_100 else 48_000)
+                markReconnectNeeded()
+            }
+            toggle(card, getString(R.string.settings_wireless_opus),
+                getString(R.string.settings_wireless_opus_description),
+                AirPlayPersistence.loadWirelessOpus(this)) {
+                AirPlayPersistence.saveWirelessOpus(this, it)
+                markReconnectNeeded()
+            }
             toggle(card, getString(R.string.settings_car_bluetooth_audio), getString(R.string.settings_car_bluetooth_audio_description),
                 AirPlayPersistence.loadCarBluetoothAudio(this)) {
                 AirPlayPersistence.saveCarBluetoothAudio(this, it)
