@@ -1712,6 +1712,11 @@ private class AudioRenderer(
     private val navigationPlaybackToken = NavigationPlayback.open()
     private var actualLegacyStreamType: Int? = null
     private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
+    /** Music with sustained decoder backpressure must not keep playing minutes-old packets. */
+    private val mediaLagGuard =
+        if (format.audioType.equals("media", true)) MediaPacketLagGuard(format.rtpClockRate) else null
+    @Volatile private var newestRtpSample = 0
+    private var lagRecoveryReports = 0
     @Volatile private var running = true
     @Volatile private var started = false
     private var released = false
@@ -1724,7 +1729,7 @@ private class AudioRenderer(
     private var playbackStarted = false
     private var prebufferBytes = 0
     private var startThresholdBytes = 0
-    private var fadeApplied = false
+    @Volatile private var fadeApplied = false
     private var droppedPacketsLogged = false
     private var firstAacPayloadLogged = false
     private var firstOpusShortPacketLogged = false
@@ -1783,6 +1788,21 @@ private class AudioRenderer(
             val now = System.nanoTime()
             val previous = lastArrivalNs.getAndSet(now)
             if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
+            newestRtpSample = sample
+            // Hold short Wi-Fi bursts intact. If compressed audio remains >1.5 s behind for
+            // another 1.5 s, skip only stale undecoded packets to catch up to the live song.
+            val removed = mediaLagGuard?.recover(queue, sample, AudioPacket::sample, now) ?: 0
+            if (removed > 0) {
+                packetsDropped.addAndGet(removed)
+                // The splice jumps forward by the discarded stretch; fade the next buffer in so
+                // the cut is a soft step instead of a click.
+                fadeApplied = false
+                if (lagRecoveryReports < MAX_AUDIO_EVENT_REPORTS) {
+                    lagRecoveryReports++
+                    report("Audio: stale media packet backlog recovered audioType=${format.audioType} " +
+                        "packetsDiscarded=$removed remaining=${queue.size}")
+                }
+            }
         }
         if (!started) return
         val packet = AudioPacket(rtp, sample)
@@ -1794,6 +1814,9 @@ private class AudioRenderer(
             // a single soft tick instead of a repeated forward tear.
             queue.poll()
             packetsDropped.incrementAndGet()
+            // Dropping the oldest packet is an audible jump forward in the waveform: fade the next
+            // buffer in so it lands as a soft step instead of a click.
+            fadeApplied = false
             if (!droppedPacketsLogged) {
                 droppedPacketsLogged = true
                 Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
@@ -2448,6 +2471,8 @@ private class AudioRenderer(
         underrunsAtPlaybackStart = track.underrunCount
         track.play()
         playbackStarted = true
+        // A rebuffer restarts mid-waveform: without a fade the step out of silence is a click.
+        if (rebufferCount > 0) fadeApplied = false
         reportNavigationPlayback(track)
         if (rebufferCount > 0 && rebufferRecoverReportCount < MAX_AUDIO_EVENT_REPORTS) {
             rebufferRecoverReportCount++
@@ -2468,6 +2493,16 @@ private class AudioRenderer(
     }
 
     /**
+     * How much audio is sitting in the packet queue, in milliseconds, from RTP timestamps. Reported
+     * so a delayed start or a skipped stretch can be told apart from plain decoder latency.
+     */
+    private fun compressedQueueMillis(): Long {
+        val guard = mediaLagGuard ?: return -1
+        val frames = guard.pendingFrames(queue, newestRtpSample, AudioPacket::sample)
+        return frames * 1000L / format.rtpClockRate.coerceAtLeast(1)
+    }
+
+    /**
      * Nudges the track's playback rate so the queued level stays at the start threshold. The head
      * unit's DAC and the iPhone's clock are independent; without this, a fast DAC drains the buffer
      * every minute or so and music pauses to refill. Music only — calls keep their echo reference exact.
@@ -2475,7 +2510,15 @@ private class AudioRenderer(
     private fun trimClock(track: AudioTrack) {
         val trim = clockTrim ?: return
         val now = System.nanoTime()
-        trim.sample(bufferProgress.queuedBytes(track.playbackHeadPosition) / frameBytes, now)
+        // Packets still waiting for the decoder are queued audio too. Counting only the PCM track
+        // made a slow decoder look like a starving buffer, and the controller answered by playing
+        // even slower — the 0.2.20 backlog spiral (#806 / PR #814).
+        val compressedRtpFrames = mediaLagGuard?.pendingFrames(queue, newestRtpSample, AudioPacket::sample)
+            ?: 0L
+        val compressedPcmFrames = compressedRtpFrames * format.sampleRate /
+            format.rtpClockRate.coerceAtLeast(1)
+        trim.sample(bufferProgress.queuedBytes(track.playbackHeadPosition) / frameBytes,
+            now, compressedPcmFrames)
         val rate = trim.rateDue(now) ?: return
         val result = runCatching { track.setPlaybackRate(rate) }.getOrDefault(AudioTrack.ERROR)
         if (result != AudioTrack.SUCCESS) {
@@ -2539,6 +2582,7 @@ private class AudioRenderer(
             "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +
             "rx=${packetsReceived.getAndSet(0)} " +
             "dropped=${packetsDropped.getAndSet(0)} underruns=+${underruns - statsLastUnderruns} queue=${queue.size} " +
+            "compressedMs=${compressedQueueMillis()} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +
             "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +
             "writtenFrames=$writtenFramesThisWindow totalWrittenFrames=$totalWrittenFrames " +
