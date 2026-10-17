@@ -50,7 +50,7 @@ object AirPlayInfoPlist {
         )
         if (!config.disableAudioOutput) {
             info["audioLatencies"] = audioLatencies()
-            info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone, config.mainBufferedAudio, config.microphoneOpus)
+            info["audioFormats"] = mergedAudioFormats(config)
         }
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
@@ -159,6 +159,48 @@ object AirPlayInfoPlist {
             // The buffered music stream; the iPhone (iOS 27) opened it only with AAC-LC, not PCM or ALAC.
             listOf(format(BufferedAudioStream.STREAM_TYPE, "media", aacLc))
         } else emptyList()
+    }
+
+    /**
+     * 历史声明与上游 [CarPlayAudioFormats] 的并集。
+     *
+     * 历史掩码逐位保留（今天能出声的组合一个都不删），只补上协议允许、但过去没声明的位；
+     * 音乐 AAC-LC(102) 刻意不并入，避免手机改选 44.1 kHz 让音色/时序和现在不一样。
+     */
+    private fun mergedAudioFormats(config: AirPlayConfig): List<Map<String, Any?>> {
+        val legacy = audioFormats(
+            config.entertainmentSampleRate,
+            config.microphone,
+            config.mainBufferedAudio,
+            config.microphoneOpus,
+        )
+        val extended = runCatching {
+            CarPlayAudioFormats.build(
+                config.audioQuality,
+                config.microphone,
+                wireless = true,
+                supportedOutput = config.audioSupportedFormats,
+            )
+        }.getOrDefault(emptyList())
+        if (extended.isEmpty()) return legacy
+        val byRoute = extended.associateBy { "${it["type"]}/${it["audioType"]}" }
+        return legacy.map { entry ->
+            val keep = entry["type"] == 102 && entry["audioType"] == "media"
+            val other = if (keep) null else byRoute["${entry["type"]}/${entry["audioType"]}"]
+            if (other == null) {
+                entry
+            } else {
+                val merged = LinkedHashMap<String, Any?>(entry)
+                val own = (entry["audioOutputFormats"] as? Number)?.toLong() ?: 0L
+                val more = (other["audioOutputFormats"] as? Number)?.toLong() ?: 0L
+                val bits = own or more
+                merged["audioOutputFormats"] = if (bits <= Int.MAX_VALUE.toLong()) bits.toInt() else bits
+                if (merged["audioInputFormats"] == null) {
+                    other["audioInputFormats"]?.let { merged["audioInputFormats"] = it }
+                }
+                merged
+            }
+        }
     }
 
     /**
