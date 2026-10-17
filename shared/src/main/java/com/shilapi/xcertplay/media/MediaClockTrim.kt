@@ -14,7 +14,9 @@ import kotlin.math.roundToInt
  * [MAX_TRIM] and settles at the head unit's own drift, which is a hardware constant, so the next
  * music stream starts from the trim this one learned.
  *
- * Ported from the DiPlay 0.2.20 build (#610, 0.76 % fast on a Humax BHCN-T3103C).
+ * Ported from the DiPlay 0.2.20 build (#610, 0.76 % fast on a Humax BHCN-T3103C), with the #814
+ * backlog corrections: the level includes the compressed packets still waiting for the decoder, and
+ * decoder congestion never teaches a permanent clock correction.
  */
 internal class MediaClockTrim(
     private val sampleRate: Int,
@@ -24,20 +26,28 @@ internal class MediaClockTrim(
     private var level: Double? = null
     private var lastSampleNs = 0L
     private var lastUpdateNs: Long? = null
+    private var compressedBacklog = false
 
     /** The playback rate last asked of the track, in Hz. */
     var rate = sampleRate
         private set
 
-    /** Records the queued level right after a write while music plays. */
-    fun sample(queuedFrames: Long, nowNs: Long) {
+    /**
+     * Records the queued level while music plays.
+     *
+     * [compressedFrames] is the audio still sitting in the packet queue. Without it a slow decoder
+     * looks like "too little audio queued" and the controller slows playback, which grows the
+     * packet queue further — the 0.2.20 backlog spiral (#806) that made music pile up 4 s deep and
+     * slowed the rate to its bound on every head unit.
+     */
+    fun sample(queuedFrames: Long, nowNs: Long, compressedFrames: Long = 0L) {
         if (targetFrames <= 0L) return
-        // A supply gap (a 766 ms Wi-Fi pause was seen on the Lynk 03) drains the buffer without
-        // saying anything about the clocks. An unbounded error read that empty buffer as drift,
-        // the P term slammed the rate to the -3 % bound, the backlog then refilled past the start
-        // level and dropped 465 packets of audible ticks. Bound what the controller ever sees;
-        // the buffer headroom absorbs the gap instead.
-        val error = ((queuedFrames - targetFrames).toDouble() / targetFrames)
+        // Decoder backpressure is not evidence that the head unit's clock runs at a different
+        // rate; do not teach the *next* music stream an artificial clock correction.
+        compressedBacklog = compressedFrames > targetFrames
+        val buffered = queuedFrames.coerceAtLeast(0L) +
+            compressedFrames.coerceIn(0L, sampleRate.toLong() * MAX_BACKLOG_SECONDS)
+        val error = ((buffered - targetFrames).toDouble() / targetFrames)
             .coerceIn(-MAX_CONTROL_ERROR, MAX_CONTROL_ERROR)
         val previous = level
         // After a pause, a rebuffer or the first write the average restarts from what is queued now.
@@ -56,8 +66,15 @@ internal class MediaClockTrim(
         // A pause between updates is not drift: integrate at most one normal step over it.
         val seconds = if (previousUpdate == null) 0.0 else ((nowNs - previousUpdate) / 1e9).coerceAtMost(MAX_STEP_SECONDS)
         lastUpdateNs = nowNs
-        integral = (integral + KI * error * seconds).coerceIn(-MAX_TRIM, MAX_TRIM)
-        learnedTrim = integral
+        if (!compressedBacklog) {
+            // Anti-windup: once the bound is reached the integral stops charging, so clearing a
+            // transient backlog does not leave minutes of pitch error to unwind.
+            val next = (integral + KI * error * seconds).coerceIn(-MAX_TRIM, MAX_TRIM)
+            if (next != integral) {
+                integral = next
+                learnedTrim = integral
+            }
+        }
         val next = (sampleRate * (1.0 + (KP * error + integral).coerceIn(-MAX_TRIM, MAX_TRIM))).roundToInt()
         if (next == rate) return null
         rate = next
@@ -86,6 +103,8 @@ internal class MediaClockTrim(
         const val UPDATE_NS = 1_000_000_000L
         const val STALE_NS = 250_000_000L
         const val MAX_STEP_SECONDS = 2.0
+        /** A packet backlog longer than this is nonsense from a timestamp reset, not audio. */
+        const val MAX_BACKLOG_SECONDS = 16L
 
         /** The drift the last music stream settled on. Each process plays to one head unit. */
         @Volatile var learnedTrim = 0.0
