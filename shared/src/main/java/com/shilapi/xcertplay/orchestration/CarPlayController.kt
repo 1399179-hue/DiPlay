@@ -1563,7 +1563,8 @@ class CarPlayController(
             onStatus(CarPlayStatus.RunningWireless)
             debugLog(
                 "wireless Bluetooth iAP2 bootstrap starting " +
-                    "location=false vehicleStatus=false",
+                    "location=${bootstrapIdentification.locationInformationEnabled} " +
+                    "vehicleStatus=${bootstrapIdentification.vehicleStatusEnabled}",
             )
             startedHotspot?.validateReady()
             val result = Iap2WirelessControlClient(
@@ -1573,6 +1574,12 @@ class CarPlayController(
                 identification = bootstrapIdentification,
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
+                // The Bluetooth bootstrap owns location and vehicle data: the optional type-130
+                // tunnel is often never opened, and this link is then the session's only iAP2
+                // channel. Without a provider here the iPhone would get no GPS at all and would
+                // navigate on its own receiver.
+                locationProvider = locationProvider,
+                vehicleStatusProvider = vehicleStatusProvider,
                 keepAliveAfterDeadline = { keepBluetoothControlAlive(generation) },
                 beforeStartSession = { startedHotspot?.validateReady() },
                 onStartSessionSent = { watchdog.startSessionSent(it.sentAtNanos) },
@@ -1672,8 +1679,11 @@ class CarPlayController(
                         identification = identification,
                         endpoint = endpoint,
                         timeoutMillis = Iap2WirelessControlClient.NO_TIMEOUT_MILLIS,
-                        locationProvider = locationProvider,
-                        vehicleStatusProvider = vehicleStatusProvider,
+                        // Location and vehicle data stay on the Bluetooth bootstrap, which declared
+                        // them first; iOS refuses a second endpoint for the same data, so this link
+                        // neither declares nor sends them.
+                        locationProvider = null,
+                        vehicleStatusProvider = null,
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
@@ -1798,6 +1808,17 @@ class CarPlayController(
                     // A queued completion must not close a replacement generation's bootstrap.
                     if (closed || phase != Phase.WIRELESS || generation != wirelessGeneration.get() ||
                         wirelessFailureReported.get() || !wirelessTunnelReady.get()) return@Thread
+                    // The Bluetooth bootstrap owns location and vehicle data (see forWirelessLink);
+                    // iOS refuses a second endpoint for them, so closing it would leave the iPhone
+                    // without GPS for the rest of the session.
+                    if (config.identification.locationInformationEnabled) {
+                        debugLog(
+                            "wireless handoff ready; keeping Bluetooth because it owns " +
+                                "location/vehicle data",
+                        )
+                        onStatus(CarPlayStatus.WirelessActive, generation)
+                        return@Thread
+                    }
                     debugLog("wireless handoff ready; closing Bluetooth bootstrap transport")
                     closeBluetoothBootstrapTransport()
                     onStatus(CarPlayStatus.WirelessActive, generation)
