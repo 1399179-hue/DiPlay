@@ -82,6 +82,13 @@ data class AirPlayConfig(
      * ahead of time over TCP, so short Wi-Fi gaps do not interrupt it.
      */
     val mainBufferedAudio: Boolean = false,
+    /**
+     * 向手机声明的音频质量上限（借鉴上游 0bed3d97）。默认值与历史行为完全一致：
+     * 音乐仍是 AAC-LC 48 kHz 立体声，只额外补上协议允许、过去没声明的位。
+     */
+    val audioQuality: AudioQualitySettings = AudioQualitySettings(),
+    /** 本机实测能解的格式位集合；null 表示不探测，按协议表原样声明。 */
+    val audioSupportedFormats: Set<Long>? = null,
 )
 
 /** The offer, SETUP and controls must all honor the user's audio-output setting. */
