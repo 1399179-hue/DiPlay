@@ -1890,6 +1890,12 @@ private class AudioRenderer(
         )
         val mime = requireNotNull(mediaFormat.getString(MediaFormat.KEY_MIME)) { "codec has no decoder" }
         if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
+            Log.i(
+                TAG,
+                "audio AAC config codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
+                    "csd0=${aacAudioSpecificConfig().toHexString()}",
+            )
+        }
         codec = try {
             MediaCodecStartup.create(
                 create = { diagnosticStage = "decoder-create"; MediaCodec.createDecoderByType(mime) },
