@@ -1687,7 +1687,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             card.addView(button("${getString(R.string.choose_iphone_prefix)}${DiPlayPreferences.phoneName(this)}", false) { choosePhone() }, matchButton(12, 60))
         }
         filteredSection(content, SettingsSection.CAR_HOTSPOT,
-            getString(R.string.car_hotspot_config_title), R.drawable.ic_dp_connect) { card ->
+            getString(R.string.car_hotspot_config_title), R.drawable.ic_dp_connection) { card ->
             carHotspotConfigControls(card)
         }
         filteredSection(content, SettingsSection.DISPLAY_AND_PERFORMANCE,
