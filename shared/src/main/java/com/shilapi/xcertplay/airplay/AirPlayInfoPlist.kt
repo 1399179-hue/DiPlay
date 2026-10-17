@@ -183,6 +183,9 @@ object AirPlayInfoPlist {
             )
         }.getOrDefault(emptyList())
         if (extended.isEmpty()) return legacy
+        val eldDecoderPresent = runCatching {
+            com.shilapi.xcertplay.media.AudioDecoders.candidates(AudioCodecKind.AAC_ELD).isNotEmpty()
+        }.getOrDefault(false)
         val byRoute = extended.associateBy { "${it["type"]}/${it["audioType"]}" }
         return legacy.map { entry ->
             val keep = entry["type"] == 102 && entry["audioType"] == "media"
@@ -193,7 +196,9 @@ object AirPlayInfoPlist {
                 val merged = LinkedHashMap<String, Any?>(entry)
                 val own = (entry["audioOutputFormats"] as? Number)?.toLong() ?: 0L
                 val more = (other["audioOutputFormats"] as? Number)?.toLong() ?: 0L
-                val bits = own or more
+                var bits = own or more
+                // 声明了却解不了比不声明更糟：手机可能选到本机没有解码器的格式，直接变无声。
+                if (!eldDecoderPresent) bits = bits and ELD_BITS.inv()
                 merged["audioOutputFormats"] = if (bits <= Int.MAX_VALUE.toLong()) bits.toInt() else bits
                 if (merged["audioInputFormats"] == null) {
                     other["audioInputFormats"]?.let { merged["audioInputFormats"] = it }
@@ -209,6 +214,10 @@ object AirPlayInfoPlist {
      */
     const val DOCK_EDGE_BOTTOM = 1
     const val DOCK_EDGE_DRIVER_SIDE = 2
+
+    /** 本机能解 AAC-ELD 才敢声明的那几位（见 AudioStream.ELD_FORMAT）。 */
+    private val ELD_BITS: Long = (1L shl 24) or (1L shl 25) or (1L shl 26) or
+        (1L shl 27) or (1L shl 31) or (1L shl 32) or (1L shl 43)
     private const val VIEW_AREA_ANIMATION_MILLIS = 300
 
     /**
