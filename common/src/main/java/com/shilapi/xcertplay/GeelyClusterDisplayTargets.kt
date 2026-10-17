@@ -32,6 +32,14 @@ internal object GeelyClusterDisplayTargets {
     private const val MIN_WIDTH = 480
     private const val MIN_HEIGHT = 240
 
+    /**
+     * Stands in for the uniqueId when the hidden `getUniqueId` cannot be read on this firmware.
+     *
+     * The id is only used to prefer one candidate over another, so an unreadable one must not cost
+     * the panel its place: it simply stops matching the 领克 03 preference and falls back to size.
+     */
+    private const val UNKNOWN_UNIQUE_ID = "unknown"
+
     data class Target(
         val display: Display,
         val uniqueId: String,
@@ -94,7 +102,7 @@ internal object GeelyClusterDisplayTargets {
         if (!display.isValid || display.state != Display.STATE_ON) return null
         val size = Point().also { display.getRealSize(it) }
         if (size.x < MIN_WIDTH || size.y < MIN_HEIGHT) return null
-        val uniqueId = uniqueIdOf(display) ?: return null
+        val uniqueId = uniqueIdOf(display) ?: UNKNOWN_UNIQUE_ID
         Target(display, uniqueId, size.x, size.y)
     }.getOrNull()
 
