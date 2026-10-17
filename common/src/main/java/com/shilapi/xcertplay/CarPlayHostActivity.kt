@@ -4800,7 +4800,10 @@ class CarPlayHostActivity : ComponentActivity() {
             onScreenStreamActiveChanged = { type, active ->
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
-            mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this),
+            mediaBufferMillis = com.shilapi.xcertplay.media.MediaAudioBuffer.forTransport(
+                AirPlayPersistence.loadMediaBufferMillis(this),
+                wireless = wirelessEnabled,
+            ),
             microphoneGainPercent = AirPlayPersistence.loadMicrophoneGainPercent(this),
             onAudioDiagnostic = { message ->
                 if (message.startsWith("Microphone: ")) {

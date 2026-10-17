@@ -29,6 +29,24 @@ object MediaAudioBuffer {
 
     fun sanitize(millis: Int): Int = millis.takeIf { it in presets } ?: DEFAULT_MILLIS
 
+    /**
+     * Longest music buffer worth keeping on a wired link.
+     *
+     * The cable has no radio gaps to ride out, so above this the buffer is heard only as delay after
+     * play, pause and a track change. The device's own minimum track size still applies on top.
+     */
+    const val WIRED_MAX_MILLIS = 200
+
+    /**
+     * The music buffer to use for one transport.
+     *
+     * The saved value is tuned for wireless, where it has to outlast Wi-Fi gaps of several hundred
+     * milliseconds. Wired sessions reuse the same setting but do not need that headroom, so the
+     * value is capped rather than applied as saved.
+     */
+    fun forTransport(millis: Int, wireless: Boolean): Int =
+        if (wireless) sanitize(millis) else minOf(sanitize(millis), WIRED_MAX_MILLIS)
+
     data class Plan(val trackBufferBytes: Int, val startBytes: Int)
 
     /**
