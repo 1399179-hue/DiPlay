@@ -20,6 +20,12 @@ data class CarPlayLocationFix(
     val speedMetersPerSecond: Double? = null,
     val accuracyMeters: Double? = null,
     val timestampMillis: Long? = null,
+    /** GGA fix quality; null keeps the legacy GPS-fix value. */
+    val fixQuality: Int? = null,
+    /** Satellites used in the fix; null keeps the legacy placeholder. */
+    val satellitesUsed: Int? = null,
+    /** Set only when [altitudeMeters] is above mean sea level: ellipsoid height minus MSL. */
+    val geoidSeparationMeters: Double? = null,
 ) {
     init {
         require(latitudeDegrees.isFinite() && latitudeDegrees in -90.0..90.0) {
@@ -55,7 +61,13 @@ object NmeaLocationEncoder {
             ?.takeIf { it > 0 }
             ?.let(::ofEpochMilli)
             ?: ofEpochMilli(System.currentTimeMillis())
-        val time = format("%02d%02d%02d.00", timestamp.hour, timestamp.minute, timestamp.second)
+        val time = format(
+            "%02d%02d%02d.%02d",
+            timestamp.hour,
+            timestamp.minute,
+            timestamp.second,
+            timestamp.centisecond,
+        )
         val date = format(
             "%02d%02d%02d",
             timestamp.day,
@@ -74,9 +86,12 @@ object NmeaLocationEncoder {
             ?.let { format("%.1f", it) }
             ?: "0.0"
 
+        val quality = fix.fixQuality ?: LEGACY_FIX_QUALITY
+        val satellites = fix.satellitesUsed?.let { format("%02d", it) } ?: LEGACY_SATELLITES
+        val separation = fix.geoidSeparationMeters?.takeIf { it.isFinite() }?.let { format("%.1f", it) } ?: "0.0"
         val ggaBody = "GPGGA,$time,${latitude.value},${latitude.hemisphere}," +
-            "${longitude.value},${longitude.hemisphere},1,08,${format("%.1f", hdop)}," +
-            "$altitude,M,0.0,M,,"
+            "${longitude.value},${longitude.hemisphere},$quality,$satellites,${format("%.1f", hdop)}," +
+            "$altitude,M,$separation,M,,"
         val speedKnots = fix.speedMetersPerSecond
             ?.takeIf { it.isFinite() && it >= 0 }
             ?.let { format("%.2f", it * KNOTS_PER_METER_PER_SECOND) }
@@ -132,10 +147,15 @@ object NmeaLocationEncoder {
         val hour: Int = fields.get(Calendar.HOUR_OF_DAY)
         val minute: Int = fields.get(Calendar.MINUTE)
         val second: Int = fields.get(Calendar.SECOND)
+        val centisecond: Int = fields.get(Calendar.MILLISECOND) / 10
         val day: Int = fields.get(Calendar.DAY_OF_MONTH)
         val month: Int = fields.get(Calendar.MONTH) + 1
         val year: Int = fields.get(Calendar.YEAR)
     }
+
+    /** Sent unless precise positioning supplies the real value. */
+    private const val LEGACY_FIX_QUALITY = 1
+    private const val LEGACY_SATELLITES = "08"
 
     private const val KNOTS_PER_METER_PER_SECOND = 1.94384449
     private const val MINUTES_PER_DEGREE = 60.0
@@ -151,16 +171,34 @@ class Iap2LocationReporter(
     private val provider: Iap2LocationProvider?,
     private val onProgress: (String) -> Unit,
     private val nanoTime: () -> Long = System::nanoTime,
+    /**
+     * Keep a fix flowing even when the phone never sent 0xFFFA. A phone that does not subscribe
+     * has to use its own receiver inside the cabin, which is far less accurate than the head
+     * unit's roof antenna; the unsolicited push gives the navigation app a usable alternative.
+     * A real subscription always wins: its sentence selection and stop request stay authoritative.
+     */
+    private val unsolicited: Boolean = false,
 ) {
     private var active = false
+    private var unsolicitedRunning = false
+    /** Set by an explicit 0xFFFC: the phone asked us to stop, so the unsolicited path stays down. */
+    private var stoppedByPhone = false
     private var sentLogged = false
     private var lastAttemptNanos = 0L
+    /** Interval the phone asked for in its 0xFFFA request, clamped to what the source can honour. */
+    private var pollIntervalMillis = POLL_INTERVAL_MILLIS
 
     /** Handles 0xFFFA/0xFFFC; returns false for any other message. */
     fun handle(frame: Iap2Frame, send: (Iap2Frame) -> Unit): Boolean = when (frame.messageId) {
         Iap2LocationMessages.START_LOCATION_INFORMATION -> {
             val components = Iap2LocationMessages.requestedComponents(frame)
-            onProgress("iap2 rx=0xfffa start-location-information components=$components")
+            pollIntervalMillis = (Iap2LocationMessages.requestedIntervalMillis(frame) ?: POLL_INTERVAL_MILLIS)
+                .coerceIn(MIN_INTERVAL_MILLIS, MAX_INTERVAL_MILLIS)
+            onProgress(
+                "iap2 rx=0xfffa start-location-information components=$components " +
+                    "interval=${pollIntervalMillis}ms",
+            )
+            stoppedByPhone = false
             provider?.onRequested(components)
             start(send)
             true
@@ -170,6 +208,8 @@ class Iap2LocationReporter(
             active = false
             sentLogged = false
             provider?.stop()
+            unsolicitedRunning = false
+            stoppedByPhone = true
             true
         }
         else -> false
@@ -177,18 +217,37 @@ class Iap2LocationReporter(
 
     /** Sends the latest fix once a second while this link has an active request. */
     fun tick(send: (Iap2Frame) -> Unit) {
-        if (active && sinceAttemptMillis() >= POLL_INTERVAL_MILLIS) sendLatest(send)
+        val interval = when {
+            active -> pollIntervalMillis
+            pushUnsolicited() -> UNSOLICITED_INTERVAL_MILLIS
+            else -> return
+        }
+        if (sinceAttemptMillis() >= interval) sendLatest(send)
     }
 
     /** Wakes the loop when the next requested fix is due. */
-    fun pollTimeout(remainingMillis: Long): Long =
-        if (active) min(remainingMillis, (POLL_INTERVAL_MILLIS - sinceAttemptMillis()).coerceAtLeast(1))
-        else remainingMillis
+    fun pollTimeout(remainingMillis: Long): Long = when {
+        active -> min(remainingMillis, (pollIntervalMillis - sinceAttemptMillis()).coerceAtLeast(1))
+        unsolicited -> min(remainingMillis, (UNSOLICITED_INTERVAL_MILLIS - sinceAttemptMillis()).coerceAtLeast(1))
+        else -> remainingMillis
+    }
+
+    /** True once the unsolicited path has a running source; a no-op while a real subscription is active. */
+    private fun pushUnsolicited(): Boolean {
+        if (!unsolicited || provider == null || stoppedByPhone) return false
+        if (!unsolicitedRunning) {
+            unsolicitedRunning = startProvider()
+            if (unsolicitedRunning) onProgress("iap2 location unsolicited push started")
+        }
+        return unsolicitedRunning
+    }
 
     private fun sinceAttemptMillis() = (nanoTime() - lastAttemptNanos) / 1_000_000
 
     private fun start(send: (Iap2Frame) -> Unit) {
         active = startProvider()
+        // A real subscription replaces the unsolicited stream: one cadence, phone-chosen sentences.
+        unsolicitedRunning = false
         sentLogged = false
         if (active) sendLatest(send)
     }
@@ -215,6 +274,12 @@ class Iap2LocationReporter(
 
     private companion object {
         const val POLL_INTERVAL_MILLIS = 1_000L
+        /** Same once-a-second cadence as a subscription; phones tolerate slower, not faster. */
+        const val UNSOLICITED_INTERVAL_MILLIS = 1_000L
+        /** The GNSS chip updates at 1 Hz here; asking faster only burns power. */
+        const val MIN_INTERVAL_MILLIS = 250L
+        /** A phone asking for minutes still gets a usable stream. */
+        const val MAX_INTERVAL_MILLIS = 5_000L
     }
 }
 
@@ -229,6 +294,18 @@ object Iap2LocationMessages {
     /** The parameter ids of a 0xFFFA request (the sentence types asked for), or none if unreadable. */
     fun requestedComponents(frame: Iap2Frame): Set<Int> =
         runCatching { frame.body().asList().map { it.id }.toSortedSet() }.getOrDefault(emptySet())
+
+    /**
+     * The fastest interval the phone asked for: parameter 0 is the message interval, 0x8001..0x8007
+     * are per-sentence intervals. Null when the request carries none.
+     */
+    fun requestedIntervalMillis(frame: Iap2Frame): Long? = runCatching {
+        frame.body().asList()
+            .filter { it.id == 0 || it.id in 0x8001..0x8007 }
+            .map { field -> field.payload.fold(0L) { value, byte -> (value shl 8) or (byte.toLong() and 0xff) } }
+            .filter { it > 0 }
+            .minOrNull()
+    }.getOrNull()
 
     fun locationInformation(nmeaSentence: String): Iap2Frame {
         require(nmeaSentence.isNotEmpty()) { "NMEA sentence must not be empty" }
