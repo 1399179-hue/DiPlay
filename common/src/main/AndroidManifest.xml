@@ -37,6 +37,12 @@
             <action android:name="android.intent.action.OPEN_DOCUMENT" />
             <data android:mimeType="*/*" />
         </intent>
+        <!-- Image pickers are probed with resolveActivity before launch; without this query
+             package visibility hides them and the picker button reports none installed. -->
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+            <data android:mimeType="image/*" />
+        </intent>
     </queries>
     <application>
         <!-- carlito | Generic instrument map viewport settings. -->
