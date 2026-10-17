@@ -115,7 +115,9 @@ class AndroidMediaSink(
         // The session log file is optional and absent on most head units, so a duck would leave no
         // trace at all. Volume transitions are two lines per announcement; send them to logcat too.
         { message ->
-            if (message.startsWith("Audio: volume")) Log.i(TAG, message)
+            if (message.startsWith("Audio: volume") || message.startsWith("Audio: concealed")) {
+                Log.i(TAG, message)
+            }
             onAudioDiagnostic(message)
         },
         factoryRouting = factoryAudio != null && !bluetoothOutput,
