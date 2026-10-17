@@ -74,6 +74,8 @@ object AirPlayPersistence {
     private const val KEY_FPS = "display_fps"
     private const val KEY_MEDIA_BUFFER_MS = "media_buffer_ms"
     private const val KEY_MAIN_BUFFERED_AUDIO = "main_buffered_audio"
+    private const val KEY_AUDIO_MUSIC_RATE = "audio_music_rate"
+    private const val KEY_WIRELESS_OPUS = "wireless_opus"
     private const val KEY_CAR_BLUETOOTH_AUDIO = "car_bluetooth_audio"
     private const val KEY_CALL_ECHO_CANCELLATION = "call_echo_cancellation"
     private const val KEY_CALL_VOICE_FILTER = "call_voice_filter"
@@ -611,6 +613,36 @@ object AirPlayPersistence {
 
     fun saveMainBufferedAudio(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_MAIN_BUFFERED_AUDIO, enabled).apply()
+    }
+
+    /**
+     * 音乐路采样率上限（48 kHz 默认，与历史 /info 声明一致）。
+     * 借鉴上游 0bed3d97 的音频质量菜单：只调上限，实际格式仍由手机协商。
+     */
+    fun loadAudioMusicRate(context: Context): Int {
+        val rate = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_AUDIO_MUSIC_RATE, 48_000)
+        return if (rate == 44_100) 44_100 else 48_000
+    }
+
+    fun saveAudioMusicRate(context: Context, rate: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_AUDIO_MUSIC_RATE, if (rate == 44_100) 44_100 else 48_000).apply()
+    }
+
+    /** 无线语音/提示音是否优先 Opus；默认开，关掉后回退 AAC-ELD。 */
+    fun loadWirelessOpus(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_WIRELESS_OPUS, true)
+
+    fun saveWirelessOpus(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_WIRELESS_OPUS, enabled).apply()
+    }
+
+    fun loadAudioQuality(context: Context): com.shilapi.xcertplay.airplay.AudioQualitySettings {
+        val base = com.shilapi.xcertplay.airplay.AudioQualitySettings()
+        return base.copy(
+            opusEnabled = loadWirelessOpus(context),
+            music = base.music.copy(sampleRate = loadAudioMusicRate(context)),
+        )
     }
 
     /** Offer no CarPlay audio, so the iPhone keeps audio on its Bluetooth link with the car; applies at reconnect. */
