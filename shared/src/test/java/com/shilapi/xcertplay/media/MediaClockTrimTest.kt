@@ -132,4 +132,31 @@ class MediaClockTrimTest {
         trim.sample(14_400, 500_000_000L)
         assertNull(trim.rateDue(500_000_000L))
     }
+
+    @Test fun aLargeCompressedQueueMustNotTrickClockControlIntoSlowingDownFurther() {
+        val trim = MediaClockTrim(48_000, 14_400)
+        // The #806 recording had 150-192 pending AAC packets while Android's track writes
+        // reported a small hardware PCM queue. Those packets are not 'missing' music.
+        for (second in 1..12) {
+            trim.sample(4_800, second * 1_000_000_000L, compressedFrames = 96 * 1024L)
+            trim.rateDue(second * 1_000_000_000L)
+        }
+        assertTrue("slow playback grows a 2-second packet backlog; rate=${trim.rate}", trim.rate >= 48_000)
+        // Decoder congestion is not a characteristic of the vehicle's playback clock. A future
+        // song should not inherit a pitch error caused by a temporary stall.
+        assertEquals(0.0, MediaClockTrim.learnedTrim, 1e-8)
+    }
+
+    @Test fun aSaturatedTrimNeverLearnsMoreThanItsBound() {
+        val trim = MediaClockTrim(48_000, 48_000)
+        var rate = 48_000
+        for (second in 1..600) {
+            val nowNs = second * 1_000_000_000L
+            // Music is always queued short: the controller must slow down, but only to its bound.
+            trim.sample(0, nowNs)
+            rate = trim.rateDue(nowNs) ?: rate
+        }
+        assertEquals((48_000 * (1.0 - MediaClockTrim.MAX_TRIM)).toInt(), rate)
+        assertEquals(-MediaClockTrim.MAX_TRIM, MediaClockTrim.learnedTrim, 1e-9)
+    }
 }
