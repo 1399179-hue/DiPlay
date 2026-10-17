@@ -955,4 +955,26 @@
     <string name="settings_audio_rate_441">44.1 kHz</string>
     <string name="settings_wireless_opus">Prefer Opus for wireless voice</string>
     <string name="settings_wireless_opus_description">Advertise Opus for wireless prompts and speech. Turn off to fall back to AAC-ELD. Music stays AAC-LC either way. Applies at reconnect.</string>
+    <string name="car_hotspot_config_title">Car hotspot configuration</string>
+    <string name="car_hotspot_config_not_read">The car hotspot configuration has not been read yet.</string>
+    <string name="car_hotspot_config_read">Read the car hotspot configuration</string>
+    <string name="car_hotspot_config_reading">Reading the car hotspot configuration…</string>
+    <string name="car_hotspot_config_value">Car hotspot: %1$s (%2$s)</string>
+    <string name="car_hotspot_config_unavailable">Could not read it (%1$s).</string>
+    <string name="car_hotspot_config_write">Write a new password to the car</string>
+    <string name="car_hotspot_config_read_first">Read the car hotspot configuration first.</string>
+    <string name="car_hotspot_config_write_unsupported">This security mode cannot be rewritten.</string>
+    <string name="car_hotspot_config_new_password">New password (8 characters or more)</string>
+    <string name="car_hotspot_config_write_hint">Only the password is replaced; the SSID stays %1$s. Writing needs ADB access to the head unit.</string>
+    <string name="car_hotspot_config_password_too_short">The password needs at least 8 characters.</string>
+    <string name="car_hotspot_config_writing">Writing…</string>
+    <string name="car_hotspot_config_written">Written. Car hotspot: %1$s</string>
+    <string name="car_hotspot_config_write_failed">The write failed (%1$s).</string>
+    <string name="settings_launcher_bubble">Launcher bubble (experimental)</string>
+    <string name="settings_launcher_bubble_description">Draws a DiPlay bubble over the head unit launcher: tap it to return to CarPlay, drag it to move. It hides while DiPlay is in front and comes back afterwards. Hold to lock the place, hold again to unlock. Needs the display-over-other-apps permission.</string>
+    <string name="settings_launcher_bubble_size">Bubble size</string>
+    <string name="settings_launcher_bubble_locked">Place locked</string>
+    <string name="settings_launcher_bubble_unlocked">Place unlocked</string>
+    <string name="settings_launcher_bubble_hold_to_lock">Hold to lock</string>
+    <string name="settings_launcher_bubble_hold_to_unlock">Hold to unlock</string>
 </resources>
