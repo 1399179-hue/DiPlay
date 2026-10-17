@@ -15,6 +15,16 @@ import java.io.Closeable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
+/**
+ * The installed bridge APK answers an older protocol than this build understands.
+ *
+ * Distinct from a bridge that is not installed at all: the driver has to *update* the bridge, not
+ * install it. Both clients used to raise this as a plain `check`, so the caller's catch turned it
+ * into "BRIDGE_UNAVAILABLE" - the same stage a missing bridge produces - and sent the driver looking
+ * for the wrong thing.
+ */
+internal class BridgeUpdateRequiredException(message: String) : IllegalStateException(message)
+
 /** Public data contract only: no ECARX/OneOS/VHAL code or model address tables. */
 class VehicleBridgeClient(context: Context) : Closeable {
     private val context = context.applicationContext
