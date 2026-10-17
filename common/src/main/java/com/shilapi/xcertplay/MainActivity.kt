@@ -41,7 +41,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             XcertplayTheme(darkTheme = appNight) {
-                var devicePath by remember { mutableStateOf("/dev/i2c-1") }
+                var devicePath by remember { mutableStateOf(AirPlayPersistence.DEFAULT_MFI_I2C_PATH) }
                 Scaffold(modifier = Modifier.fillMaxSize()) { padding ->
                     Column(
                         modifier = Modifier.padding(padding).padding(24.dp),

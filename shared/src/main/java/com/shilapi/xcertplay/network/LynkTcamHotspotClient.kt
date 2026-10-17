@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.Parcel
 import android.os.RemoteException
+import android.util.Log
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
@@ -40,6 +41,8 @@ import java.util.concurrent.atomic.AtomicReference
  * executor drops rather than queues a second reader.
  */
 internal object LynkTcamHotspotClient {
+
+    private const val TAG = "xcertplay-usb"
 
     private const val TCAM_PACKAGE = "com.autolink.tcamservice"
     private const val TCAM_SERVICE = "com.autolink.tcamservice.TcamService"
@@ -140,7 +143,13 @@ internal object LynkTcamHotspotClient {
      * understand. Must not run on the main thread.
      */
     fun read(context: Context, timeoutMillis: Long = DEFAULT_READ_TIMEOUT_MILLIS): Snapshot? {
-        if (Looper.myLooper() == Looper.getMainLooper() || timeoutMillis <= 0) return null
+        if (Looper.myLooper() == Looper.getMainLooper() || timeoutMillis <= 0) {
+            // Not a read that failed - a read that never happened. Without this line the caller sees
+            // the same null it sees when the TCAM module is absent, and the two look identical in a
+            // diagnostic report.
+            Log.i(TAG, "TCAM hotspot read refused on the main thread or with timeoutMillis=$timeoutMillis")
+            return null
+        }
         val snapshot = readBound(context.applicationContext, timeoutMillis, includeConfiguration = true)
         updateCache(snapshot)
         return snapshot
@@ -206,7 +215,11 @@ internal object LynkTcamHotspotClient {
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             return null
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            // A TCAM module that is present and refusing - a SecurityException, a RemoteException, a
+            // descriptor mismatch - returned the same null as one that is absent, so the diagnostic
+            // report could not tell a car problem from a car that has no such module.
+            Log.i(TAG, "TCAM hotspot read failed (${error.javaClass.simpleName}: ${error.message})")
             return null
         } finally {
             pending?.cancel(true)

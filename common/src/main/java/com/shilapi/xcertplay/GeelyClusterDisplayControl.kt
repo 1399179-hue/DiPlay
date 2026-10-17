@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.os.IBinder
 import android.os.Parcel
+import android.os.SystemClock
 import android.util.Log
 
 /**
@@ -36,22 +37,35 @@ internal object GeelyClusterDisplayControl {
     private const val TRANSACTION_SET_SHOWN = 9
     private const val TRANSACTION_IS_SHOWN = 10
 
+    /**
+     * How long a failed lookup is trusted before `DimNaviService` is looked up again.
+     *
+     * The car publishes that service only once its own navigation is up, which can be later than the
+     * app's first projection attempt. A failure is therefore retried rather than cached for the life
+     * of the process.
+     */
+    private const val RETRY_AFTER_MILLIS = 30_000L
+
     @Volatile private var cached: IBinder? = null
     @Volatile private var probed = false
     @Volatile private var lastFailure = "NONE"
+    @Volatile private var lastProbeAtMillis = 0L
 
     /**
      * The projection binder, or null when this head unit does not expose it.
      *
-     * `ServiceManager` is a hidden API, so it is reached by reflection; the lookup result is cached
-     * because `checkService` is not free and the answer cannot change while the process lives.
+     * `ServiceManager` is a hidden API, so it is reached by reflection. A successful lookup is cached
+     * because `checkService` is not free; a failed one is only remembered for
+     * [RETRY_AFTER_MILLIS], so a projection attempt made before the car's navigation service is
+     * published does not hide the cluster for the rest of the process lifetime.
      */
     private fun binder(): IBinder? {
         cached?.let { if (it.isBinderAlive) return it }
         synchronized(this) {
             cached?.let { if (it.isBinderAlive) return it }
-            if (probed && lastFailure != "NONE") return null
+            if (probed && lastFailure != "NONE" && !retryDue()) return null
             probed = true
+            lastProbeAtMillis = SystemClock.elapsedRealtime()
             val service = runCatching {
                 Class.forName("android.os.ServiceManager")
                     .getMethod("checkService", String::class.java)
@@ -74,6 +88,10 @@ internal object GeelyClusterDisplayControl {
             return service
         }
     }
+
+    /** True once [RETRY_AFTER_MILLIS] has passed since the last failed lookup. */
+    private fun retryDue(): Boolean =
+        SystemClock.elapsedRealtime() - lastProbeAtMillis >= RETRY_AFTER_MILLIS
 
     /** True when this head unit exposes the ECARX cluster projection switch. */
     fun available(): Boolean = binder() != null

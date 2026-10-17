@@ -43,7 +43,20 @@ internal object GeelyHudProjection : DisplayManager.DisplayListener {
     private var hudView: GeelyProjectionView? = null
     private var vehicleReader: ProjectionVehicleReader? = null
     private var vehicleFrame = ProjectionVehicleFrame()
+    /**
+     * What the HUD projection is waiting for.
+     *
+     * Reported by [diagnosticReport], but a report is a snapshot: it only shows the stage that held at
+     * the moment the driver took it. A stage that flips during a drive - the display appearing and
+     * going away again, the overlay permission being revoked by the car - left no trace at all. Logging
+     * each change makes the sequence visible in the log the report already carries.
+     */
     private var windowStage = "IDLE"
+        set(value) {
+            if (value == field) return
+            field = value
+            Log.i(TAG, "HUD projection stage=$value")
+        }
     private val refreshValues = object : Runnable {
         override fun run() {
             hudView?.invalidate()

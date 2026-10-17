@@ -48,6 +48,8 @@ class AudioStream(
     private val key: ByteArray,
     private val streamType: Int = -1,
     private val onDiagnostic: (String) -> Unit = {},
+    /** This stream's RTP timestamp rate, so a lost sequence stretch is reported in milliseconds. */
+    private val rtpClockRate: Int = 0,
 ) : Closeable {
     interface Listener {
         fun onStarted(firstSample: Int) {}
@@ -102,7 +104,7 @@ class AudioStream(
     }
 
     private fun runData(socket: DatagramSocket, listener: Listener) {
-        val stats = StreamReceiveStats("audio type=$streamType", onDiagnostic)
+        val stats = StreamReceiveStats("audio type=$streamType", onDiagnostic, rtpClockRate = rtpClockRate)
         val buffer = ByteArray(DATAGRAM_BYTES)
         try {
             while (!closed.get()) {

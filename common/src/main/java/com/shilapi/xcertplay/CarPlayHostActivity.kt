@@ -228,9 +228,12 @@ class CarPlayHostActivity : ComponentActivity() {
                 if (wirelessPermissionsReady) {
                     "Wireless startup permissions granted"
                 } else {
-                    "Wireless startup permissions denied"
+                    "Wireless startup permissions denied missing=" +
+                        missingWirelessPermissions().joinToString(",") { it.substringAfterLast('.') }
                 },
             )
+            wirelessPermissionsRefused = !wirelessPermissionsReady
+            showMissingWirelessPermission()
             updateHotspotStatusBlock()
             maybeStartCarPlay()
         }
@@ -475,6 +478,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var remoteMfiServer = ""
     private var remoteMfiToken = ""
     private var wirelessPermissionsReady = false
+    private var wirelessPermissionsRefused = false
     private var wirelessHotspotMode = WirelessHotspotMode.MANUAL
     private var manualHotspotSsid = ""
     private var existingWifiSsid = ""
@@ -954,6 +958,32 @@ class CarPlayHostActivity : ComponentActivity() {
             checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
         }
 
+    private fun missingWirelessPermissions(): List<String> =
+        requiredWirelessPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+
+    /**
+     * Once the wireless start permissions were refused, by the driver or silently by Android (#290), the screen
+     * names the access to allow instead of waiting for the iPhone. Allowing it in the app permissions brings the
+     * driver back here, where the start goes on. Ported from upstream b9679df4.
+     */
+    private fun showMissingWirelessPermission() {
+        if (wirelessPermissionsReady || !wirelessEnabled) {
+            wirelessPermissionsRefused = false
+            return
+        }
+        if (!wirelessPermissionsRefused) return
+        val missing = missingWirelessPermissions()
+        setConnectionStage(
+            if (Manifest.permission.ACCESS_FINE_LOCATION in missing ||
+                Manifest.permission.ACCESS_COARSE_LOCATION in missing
+            ) {
+                getString(R.string.allow_precise_location_for_diplay_in_the_head_unit_s_app_p)
+            } else {
+                getString(R.string.allow_nearby_devices_for_diplay_in_the_head_unit_s_app_per)
+            },
+        )
+    }
+
     private fun requiredWirelessPermissions(): List<String> =
         WirelessPermissions.required(wirelessHotspotMode, Build.VERSION.SDK_INT)
 
@@ -1041,6 +1071,9 @@ class CarPlayHostActivity : ComponentActivity() {
             requestLocationPermission()
         }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+        // Say again what is still missing each time this screen comes back, so a later Connect does not
+        // return to "Getting CarPlay ready…" and wait for an iPhone it will never hear from.
+        showMissingWirelessPermission()
         advancedAudioChannelMapping =
             advancedAudioChannelMappingSupported &&
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
@@ -4800,7 +4833,10 @@ class CarPlayHostActivity : ComponentActivity() {
             onScreenStreamActiveChanged = { type, active ->
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
-            mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this),
+            mediaBufferMillis = com.shilapi.xcertplay.media.MediaAudioBuffer.forTransport(
+                AirPlayPersistence.loadMediaBufferMillis(this),
+                wireless = wirelessEnabled,
+            ),
             microphoneGainPercent = AirPlayPersistence.loadMicrophoneGainPercent(this),
             onAudioDiagnostic = { message ->
                 if (message.startsWith("Microphone: ")) {
@@ -4941,7 +4977,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         updateHotspotStatus(status)
         val description = status.describe()
-        setConnectionStage(description)
+        // Once the retries stopped, a later failure of that same attempt - its cleanup, typically - must not
+        // replace the line that says so. Ported from upstream 0f00e8a4 (#809); the fork already wrote the
+        // "retries stopped" line in reconnectAfterLoss, only this guard was missing.
+        if (!startupRetryStopped || status !is CarPlayStatus.Failed) setConnectionStage(description)
         when (status) {
             CarPlayStatus.WaitingForCarWifiEnabled -> {
                 carWifiHelp?.visibility = View.VISIBLE
