@@ -9,7 +9,7 @@ import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-enum class AudioCodecKind { AAC_LC, OPUS, LPCM }
+enum class AudioCodecKind { AAC_LC, AAC_ELD, OPUS, LPCM }
 
 data class AudioFormat(
     val codec: AudioCodecKind,
@@ -33,6 +33,8 @@ data class AudioFormat(
      * 48 kHz decode rate, or a 16 kHz call stream runs 3x ahead of the audio that arrived (#473).
      */
     val rtpClockRate: Int = sampleRate,
+    /** AAC-ELD only: samples per packet the handset announced (480 or 512); null leaves it to the codec. */
+    val framesPerPacket: Int? = null,
 )
 
 /**
@@ -233,7 +235,9 @@ object AudioStreamCodec {
         val isAacLc = (bits and (AAC_LC_44K_STEREO or AAC_LC_48K_STEREO)) != 0L
         val isOpus = (bits and OPUS_MONO) != 0L
         val pcm = PCM_FORMAT[bits]
+        val eld = ELD_FORMAT[bits]
         return when {
+            eld != null -> AudioFormat(AudioCodecKind.AAC_ELD, eld.first, eld.second, payloadType, audioType)
             isOpus -> AudioFormat(
                 AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType,
                 rtpClockRate = MicrophoneConfig.opusClockRate(bits),
@@ -253,6 +257,17 @@ object AudioStreamCodec {
     private const val AAC_LC_44K_STEREO = 0x400000L
     private const val AAC_LC_48K_STEREO = 0x800000L
     private const val OPUS_MONO = 0x10000000L or 0x20000000L or 0x40000000L
+
+    /** AAC-ELD 在 /info 里的位序号与 iOS AirPlaySupport 表一致（见 CarPlayAudioFormats）。 */
+    private val ELD_FORMAT = mapOf(
+        (1L shl 24) to (44_100 to 2),
+        (1L shl 25) to (48_000 to 2),
+        (1L shl 26) to (16_000 to 1),
+        (1L shl 27) to (24_000 to 1),
+        (1L shl 31) to (44_100 to 1),
+        (1L shl 32) to (48_000 to 1),
+        (1L shl 43) to (32_000 to 1),
+    )
 
     private val PCM_FORMAT = mapOf(
         0x4L to (8_000 to 1),
