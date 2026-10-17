@@ -950,4 +950,9 @@
     <string name="lynk_client_wifi_compat_help">When connecting, LYNK&amp;CO will try to enable the head unit Wi-Fi and then join the current car hotspot. No other app or USB initialization is needed. Keep the hotspot on and accept the system network confirmation if shown. If initialization fails, save the diagnostic report; you can return to the home page and connect again.</string>
     <string name="lynk_client_wifi_settings_unavailable">This firmware has no available Wi-Fi settings or enable entry. Use the vehicle system or an authorized USB method to enable the head unit Wi-Fi, then return to LYNK&amp;CO and retry; LYNK&amp;CO will attempt to join the current car hotspot.</string>
     <string name="lynk_client_wifi_compat_settings_unavailable">This system has no available Wi-Fi settings entry. Return to LYNK&amp;CO and tap Connect to try built-in initialization. If the system rejects it or it times out, save the diagnostic report.</string>
+    <string name="settings_audio_music_rate">Music sample rate limit</string>
+    <string name="settings_audio_rate_48">48 kHz (default)</string>
+    <string name="settings_audio_rate_441">44.1 kHz</string>
+    <string name="settings_wireless_opus">Prefer Opus for wireless voice</string>
+    <string name="settings_wireless_opus_description">Advertise Opus for wireless prompts and speech. Turn off to fall back to AAC-ELD. Music stays AAC-LC either way. Applies at reconnect.</string>
 </resources>
