@@ -1829,7 +1829,7 @@ private class AudioRenderer(
                 "mapping=${if (advancedAudioChannelMapping) "automotive" else "mobile"} " +
                 "mediaChannel=$mediaChannel navigationChannel=$navigationChannel focus=$audioFocusEnabled") }
             when (format.codec) {
-                AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
+                AudioCodecKind.AAC_LC, AudioCodecKind.AAC_ELD -> configureCodec()
                 AudioCodecKind.OPUS -> {
                     diagnosticStage = "decoder-create"
                     softwareOpusDecoder = SoftwareOpusDecoder(format.sampleRate, format.channels)
@@ -1878,29 +1878,18 @@ private class AudioRenderer(
         }
     }
 
-    private fun configureCodec(mime: String) {
+    private fun configureCodec() {
         diagnosticStage = "decoder-format"
-        val mediaFormat = MediaFormat().apply {
-            setString(MediaFormat.KEY_MIME, mime)
-            setInteger(MediaFormat.KEY_SAMPLE_RATE, format.sampleRate)
-            setInteger(MediaFormat.KEY_CHANNEL_COUNT, format.channels)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 64 * 1024)
-            if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
-                setInteger(MediaFormat.KEY_IS_ADTS, 1)
-                setByteBuffer("csd-0", ByteBuffer.wrap(aacAudioSpecificConfig()))
-            } else {
-                setByteBuffer("csd-0", ByteBuffer.wrap(opusHead()))
-                setByteBuffer("csd-1", ByteBuffer.wrap(opusCodecDelay()))
-                setByteBuffer("csd-2", ByteBuffer.wrap(opusSeekPreRoll()))
-            }
-        }
+        // 格式构造与 AudioQualityCapabilities 的探测共用一套（上游 0bed3d97），
+        // 探测通过就一定能在这里打开；AAC-LC 的 csd-0 与历史实现逐字节等价。
+        val mediaFormat = AudioDecoders.format(
+            format.codec,
+            format.sampleRate,
+            format.channels,
+            format.framesPerPacket,
+        )
+        val mime = requireNotNull(mediaFormat.getString(MediaFormat.KEY_MIME)) { "codec has no decoder" }
         if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
-            Log.i(
-                TAG,
-                "audio AAC config rate=${format.sampleRate} channels=${format.channels} " +
-                    "csd0=${aacAudioSpecificConfig().toHexString()}",
-            )
-        }
         codec = try {
             MediaCodecStartup.create(
                 create = { diagnosticStage = "decoder-create"; MediaCodec.createDecoderByType(mime) },
@@ -2141,6 +2130,13 @@ private class AudioRenderer(
     }
 
     private fun aacAudioSpecificConfig(): ByteArray {
+        if (format.codec == AudioCodecKind.AAC_ELD) {
+            return AacEldFormat.audioSpecificConfig(
+                format.sampleRate,
+                format.channels,
+                format.framesPerPacket ?: AacEldFormat.DEFAULT_FRAMES_PER_PACKET,
+            )
+        }
         val frequencyIndex = MediaCodecSupport.aacFrequencyIndex(format.sampleRate)
         val value = (AAC_OBJECT_TYPE_LC shl 11) or
             (frequencyIndex shl 7) or
