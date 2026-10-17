@@ -1736,6 +1736,7 @@ private class AudioRenderer(
     private var firstInputQueuedLogged = false
     private var inputQueued = 0
     private var inputDropped = 0
+    private var inputWaits = 0
     private var shortOpusPackets = 0
     private var decoderUnavailablePackets = 0
     private var outputBuffers = 0
@@ -2299,10 +2300,33 @@ private class AudioRenderer(
     private fun sampleTimestampUs(sample: Int): Long =
         (sample.toLong() and 0xffff_ffffL) * 1_000_000L / format.sampleRate
 
+    /**
+     * Waits for a decoder input buffer instead of giving up after a single 10 ms poll.
+     *
+     * The audio thread feeds one access unit at a time, so a burst from the phone (measured: 19
+     * packets every ~400 ms) can arrive while every input buffer is still queued behind a stalled
+     * AudioTrack write. Dropping the payload there punches a ~21 ms hole in the music: the reference
+     * pad lost 36 such packets in 25 minutes, roughly one every 40 s, which is exactly the kind of
+     * occasional click/skip that survives every other fix. Draining finished output between attempts
+     * frees the buffer the codec is waiting for, so the wait only does work that the next loop
+     * iteration would have done anyway.
+     */
+    private fun dequeueInput(codec: MediaCodec): Int {
+        var index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        var attempt = 1
+        while (index < 0 && running && attempt < INPUT_ATTEMPTS) {
+            drainCodec(codec)
+            inputWaits++
+            index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+            attempt++
+        }
+        return index
+    }
+
     private fun feedCodec(payload: ByteArray, presentationTimeUs: Long) {
         val codec = codec ?: run { decoderUnavailablePackets++; return }
         diagnosticStage = "decoder-input"
-        val index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        val index = dequeueInput(codec)
         if (index < 0) {
             inputDropped++
             if (inputDropped == 1) {
@@ -2598,6 +2622,7 @@ private class AudioRenderer(
             // Keep this separate: the exported diagnostic recorder caps each line at 700 characters.
             val decoderLine = "Audio: decoder stats audioType=${format.audioType} codec=${format.codec} " +
                 "inputQueuedTotal=$inputQueued inputDroppedTotal=$inputDropped " +
+                "inputWaitRetriesTotal=$inputWaits " +
                 "shortOpusPacketsTotal=$shortOpusPackets decoderUnavailablePacketsTotal=$decoderUnavailablePackets " +
                 "outputBuffersTotal=$outputBuffers ended=$force"
             Log.i(STATS_TAG, decoderLine)
@@ -2694,6 +2719,8 @@ private class AudioRenderer(
         const val OPUS_CODEC_DELAY_NANOS = 6_500_000L
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
         const val INPUT_TIMEOUT_US = 10_000L
+        /** Four 10 ms polls: the wait a burst of 19 packets needs to pass through the codec. */
+        const val INPUT_ATTEMPTS = 4
         const val AUDIO_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         /** Report each rebuffer/queue-full event at most this many times, so the report stays readable. */
