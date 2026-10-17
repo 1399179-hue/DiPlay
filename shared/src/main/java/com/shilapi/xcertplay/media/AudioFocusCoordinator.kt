@@ -249,7 +249,8 @@ internal class AudioFocusCoordinator(
         val navigation = active.values.any { it.channel == AudioChannel.NAVIGATION }
         active.forEach { (track, entry) ->
             if (!enabled || manager == null) {
-                runCatching { track.setVolume(if (entry.music && (nativeBluetoothPlaying || speechPlaying)) 0f else 1f) }
+                val volume = if (entry.music && (nativeBluetoothPlaying || speechPlaying)) 0f else 1f
+                applyVolume(track, entry, volume)
                 return@forEach
             }
             val local = when {
@@ -259,10 +260,21 @@ internal class AudioFocusCoordinator(
                 entry.music && navigation -> DUCKED_VOLUME
                 else -> 1f
             }
-            runCatching { track.setVolume(focusVolume * local) }
+            applyVolume(track, entry, focusVolume * local)
         }
         // Guidance alone overlays the original source; it does not disconnect Bluetooth music.
         publishOwnership(!closed && !externalCall && focusHeld && requestedChannel != null && requestedChannel != AudioChannel.NAVIGATION)
+    }
+
+    /**
+     * Writes the stream volume only when it actually changes. Re-asserting the same value twice a
+     * second (measured on the reference pad: 618 calls in five minutes) is a HAL round trip per call
+     * and clicks on head units whose mixer reacts to a volume update.
+     */
+    private fun applyVolume(track: AudioTrack, entry: Entry, volume: Float) {
+        if (entry.appliedVolume == volume) return
+        val applied = runCatching { track.setVolume(volume) == AudioTrack.SUCCESS }.getOrDefault(false)
+        if (applied) entry.appliedVolume = volume
     }
 
     /** Upstream focus policy remains the default; explicit vehicle routing keeps its ownership policy. */
