@@ -380,6 +380,7 @@
     <string name="token_optional">權杖（選用）</string>
     <string name="transport_error_reconnecting">傳輸錯誤；正在重新連線</string>
     <string name="turn_on_bluetooth">開啟藍牙</string>
+    <string name="turn_on_bluetooth_in_the_head_unit_s_settings_to_connect">請在車機設定中開啟藍牙後再連線。</string>
     <string name="turn_on_wi_fi_in_the_head_unit_s_settings_to_connect">請在車機設定中開啟 Wi-Fi 後再連線。</string>
     <string name="turn_the_car_s_wi_fi_switch_on_allow_location_nearby_devic">開啟車機的 Wi-Fi 開關。如有提示，請允許位置／附近的裝置權限，並在 Android 詢問時啟用位置。如果播放卡頓，請嘗試使用 5 GHz 的內建車機熱點。</string>
     <string name="usage_access_enabled">使用狀況存取權限：已啟用</string>
