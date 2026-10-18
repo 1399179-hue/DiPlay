@@ -612,9 +612,17 @@ class AirPlaySession(
         reapplyClusterContent()
     }
 
+    /**
+     * The listener owns the logcat line, because [CarPlayController.debugLog] writes it. Writing it
+     * here as well puts every message on logcat twice, and the main buffer holds only a few minutes
+     * of a running session, so the duplicate halves how far back a diagnostic reaches.
+     * A message the listener must not carry is the exception and keeps its own line.
+     */
     private fun debugLog(message: String, uiVisible: Boolean = true) {
-        Log.i(TAG, message)
-        if (!uiVisible) return
+        if (!uiVisible) {
+            Log.i(TAG, message)
+            return
+        }
         try {
             listener.onDebugLog(message)
         } catch (error: Exception) {

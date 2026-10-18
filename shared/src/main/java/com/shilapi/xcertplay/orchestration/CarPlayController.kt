@@ -1791,7 +1791,12 @@ class CarPlayController(
             }
 
             override fun onDebugLog(message: String) {
-                if (isStaleWirelessRun(generation)) return
+                if (isStaleWirelessRun(generation)) {
+                    // A dead run's last lines are the ones worth having, and [sessionListener] is
+                    // the only sink that writes them to logcat.
+                    Log.i(IphoneCarPlayConfiguration.TAG, message)
+                    return
+                }
                 sessionListener.onDebugLog(message)
             }
 
