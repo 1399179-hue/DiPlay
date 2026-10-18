@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.transport
 
+import android.bluetooth.BluetoothAdapter
+
 /**
  * What wireless startup can know about the head unit's Bluetooth before it changes the Wi-Fi.
  *
@@ -15,6 +17,17 @@ object BluetoothRadioCheck {
     fun blocker(adapterPresent: Boolean, enabled: Boolean, pausedByDiPlay: Boolean): String? = when {
         !adapterPresent -> NO_ADAPTER
         !enabled && !pausedByDiPlay -> RADIO_OFF
+        else -> null
+    }
+
+    /**
+     * The same decision from the adapter's state, so a radio that is still turning on is not
+     * mistaken for one that is off. A null state means no adapter was readable.
+     */
+    fun blockerForState(adapterPresent: Boolean, state: Int?, pausedByDiPlay: Boolean): String? = when {
+        !adapterPresent || state == null -> NO_ADAPTER
+        state == BluetoothAdapter.STATE_OFF && !pausedByDiPlay -> RADIO_OFF
+        state == BluetoothAdapter.STATE_TURNING_OFF -> RADIO_OFF
         else -> null
     }
 

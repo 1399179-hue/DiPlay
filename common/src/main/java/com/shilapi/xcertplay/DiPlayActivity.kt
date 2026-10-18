@@ -5243,6 +5243,8 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         appendLine(PhoneWakeDiagnostics.report(appContext))
         appendLine("Head-unit board: ${Build.BOARD}; hardware: ${Build.HARDWARE}; build: ${Build.DISPLAY}")
         appendLine()
+        appendLine(BluetoothDiagnosticSnapshot.report(appContext))
+        appendLine()
         appendLine("--- Current cluster display diagnostics (even when disabled) ---")
         appendLine(ClusterMapPresentation.diagnosticReport(appContext))
         appendLine()

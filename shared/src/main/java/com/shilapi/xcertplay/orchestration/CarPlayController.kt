@@ -19,6 +19,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
+import com.shilapi.xcertplay.BluetoothDiagnosticSnapshot
 import android.provider.Settings
 import android.util.Log
 import com.shilapi.xcertplay.airplay.AirPlayListenerIdentity
@@ -214,9 +216,30 @@ class CarPlayController(
     private val diagnosticAttempt = diagnosticAttempts.incrementAndGet()
     private val diagnosticRun = AtomicInteger()
     private val usbManager: UsbManager? = context.getSystemService(UsbManager::class.java)
-    private val bluetoothAdapter =
-        appContext.getSystemService(BluetoothManager::class.java)?.adapter
-            ?: BluetoothAdapter.getDefaultAdapter()
+    // Read per attempt, not once at construction: a head unit that registers its Bluetooth service
+    // late hands back a null adapter at startup, and a cached null then fails every attempt after it.
+    private fun currentBluetoothAdapter(): BluetoothAdapter? =
+        runCatching { appContext.getSystemService(BluetoothManager::class.java)?.adapter }
+            .getOrNull() ?: runCatching { BluetoothAdapter.getDefaultAdapter() }.getOrNull()
+
+    /**
+     * Waits out a radio that is still turning on, and gives up on any other state.
+     *
+     * Android 8 head units report STATE_TURNING_ON for a second or two after startup; failing the
+     * attempt there is a premature RADIO_OFF that the driver cannot act on.
+     */
+    private fun awaitBluetoothEnabled(adapter: BluetoothAdapter, timeoutMillis: Long = 3_000L): Boolean {
+        if (adapter.isEnabled) return true
+        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val state = runCatching { adapter.state }.getOrNull()
+            if (state == BluetoothAdapter.STATE_ON || adapter.isEnabled) return true
+            if (state != BluetoothAdapter.STATE_TURNING_ON) break
+            SystemClock.sleep(100)
+        }
+        return adapter.isEnabled
+    }
+
     private val iphoneHost by lazy {
         IphoneUsbHost(
             appContext,
@@ -1325,9 +1348,14 @@ class CarPlayController(
             val mfi = mfiSession?.client
                 ?: throw IOException("MFi coprocessor client is unavailable")
             // Wireless CarPlay begins over Bluetooth: a radio that is off is found before the Wi-Fi is changed.
-            BluetoothRadioCheck.blocker(
-                adapterPresent = bluetoothAdapter != null,
-                enabled = bluetoothAdapter?.isEnabled == true,
+            val initialAdapter = currentBluetoothAdapter()
+            if (initialAdapter != null && initialAdapter.state == BluetoothAdapter.STATE_TURNING_ON) {
+                awaitBluetoothEnabled(initialAdapter, timeoutMillis = 3_000L)
+            }
+            val activeAdapter = currentBluetoothAdapter()
+            BluetoothRadioCheck.blockerForState(
+                adapterPresent = activeAdapter != null,
+                state = activeAdapter?.state,
                 pausedByDiPlay = BydBluetoothSuspend.isSuspendedByUs(appContext),
             )?.let { throw IOException(it) }
             val hotspotInfo = startWirelessHotspot(generation)
@@ -1408,9 +1436,12 @@ class CarPlayController(
             )
             onStatus(CarPlayStatus.WaitingForPairedIphone)
 
-            val adapter = bluetoothAdapter
+            val adapter = currentBluetoothAdapter()
                 ?: throw IOException(BluetoothRadioCheck.NO_ADAPTER)
             val bluetoothRecoveryComplete = BydBluetoothSuspend.resumeAndWait(appContext, adapter)
+            if (adapter.state == BluetoothAdapter.STATE_TURNING_ON) {
+                awaitBluetoothEnabled(adapter, timeoutMillis = 3_000L)
+            }
             if (!adapter.isEnabled) throw IOException(BluetoothRadioCheck.RADIO_OFF)
             if (!bluetoothRecoveryComplete) throw IOException("Bluetooth recovery did not complete before the handshake")
             val device = selectWirelessBluetoothDevice(adapter)
@@ -2581,14 +2612,33 @@ class CarPlayController(
                     "${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms address=$address",
             )
             runCatching { socket.close() }
+            BluetoothDiagnosticSnapshot.recordFailure(
+                appContext,
+                BluetoothDiagnosticSnapshot.FailureCategory.TIMEOUT,
+                "RFCOMM connect timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms",
+            )
             throw IOException(
                 "Timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms connecting RFCOMM to $address",
             )
         }
         when (val failure = result.get()) {
             null -> Unit
-            is IOException -> throw failure
-            else -> throw IOException("Could not connect RFCOMM to $address", failure)
+            is IOException -> {
+                BluetoothDiagnosticSnapshot.recordFailure(
+                    appContext,
+                    BluetoothDiagnosticSnapshot.FailureCategory.RFCOMM_FAILURE,
+                    "RFCOMM connect failed: ${failure.message}",
+                )
+                throw failure
+            }
+            else -> {
+                BluetoothDiagnosticSnapshot.recordFailure(
+                    appContext,
+                    BluetoothDiagnosticSnapshot.FailureCategory.RFCOMM_FAILURE,
+                    "RFCOMM connect failed: ${failure.message}",
+                )
+                throw IOException("Could not connect RFCOMM to $address", failure)
+            }
         }
     }
 
@@ -2612,7 +2662,7 @@ class CarPlayController(
             val uuids = cachedServices.getOrNull()
             val service = UUID.fromString(IAP2_IPHONE_UUID)
             connectionDiagnostic(
-                "Bluetooth snapshot point=$point enabled=${bluetoothAdapter?.isEnabled} " +
+                "Bluetooth snapshot point=$point enabled=${currentBluetoothAdapter()?.isEnabled} " +
                     "bondState=$bondState bondName=$bondName cachedServicesReadable=${cachedServices.isSuccess} " +
                     "cachedServiceCount=${uuids?.size ?: "unknown"} " +
                     "cachedIap2Service=${uuids?.any { it.uuid == service } ?: "unknown"}",
@@ -2684,7 +2734,7 @@ class CarPlayController(
                 factoryBluetoothGuard?.setSuppressed(!bluetoothAudioOutput && (geelyFactory != null || bluetoothAudioOwnership || bluetoothAudioCommand))
                 return@post
             }
-            val bonded = runCatching { bluetoothAdapter?.bondedDevices?.any { it.address.equals(address, true) } == true }.getOrDefault(false)
+            val bonded = runCatching { currentBluetoothAdapter()?.bondedDevices?.any { it.address.equals(address, true) } == true }.getOrDefault(false)
             if (!bonded) return@post
             val previous = factoryBluetoothGuard
             bluetoothAudioCommand = force
