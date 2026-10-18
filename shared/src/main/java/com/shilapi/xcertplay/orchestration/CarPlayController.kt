@@ -308,12 +308,6 @@ class CarPlayController(
     private val wirelessActiveReported = AtomicBoolean(false)
     /** Set when the handoff fell back and kept Bluetooth as the only iAP2 channel. */
     private val wirelessHandoffFellBack = AtomicBoolean(false)
-    /**
-     * One bootstrap release per process. A phone that never opens the type-130 tunnel would
-     * otherwise lose its control channel, restart and flap on every single connection.
-     */
-    private val bootstrapReleaseAllowed = AtomicBoolean(true)
-    @Volatile private var bootstrapReleased = false
     private val wirelessGeneration = AtomicInteger(0)
     private val wirelessConnectionProof = WirelessConnectionProof<AirPlaySession>()
 
@@ -457,10 +451,9 @@ class CarPlayController(
             ) {
                 debugLog(
                     "wireless CarPlay Bluetooth handoff requested; " +
-                        "releasing the bootstrap iAP2 channel so the phone opens the AirPlay tunnel",
+                        "waiting for tunnel iAP2 readiness",
                 )
                 armWirelessHandoffWatchdog(wirelessGeneration.get())
-                armBootstrapRelease(wirelessGeneration.get())
                 maybeCompleteWirelessHandoff()
             }
             uiListener?.onCommand(session, type, params)
@@ -1271,7 +1264,6 @@ class CarPlayController(
             wirelessTunnelReady.set(false)
             wirelessActiveReported.set(false)
             wirelessHandoffFellBack.set(false)
-            bootstrapReleased = false
             val next = wirelessGeneration.incrementAndGet()
             onStatus(CarPlayStatus.StartingHotspot, next)
             next
@@ -1881,58 +1873,6 @@ class CarPlayController(
         )
     }
 
-    /**
-     * The CarPlay addendum gives the Bluetooth iAP2 link one job: hand the phone the Wi-Fi
-     * credentials. Once the CarPlay session is up the phone asks the head unit to drop the active
-     * Bluetooth profiles, and it only opens the AirPlay type-130 iAP2 tunnel after that link is
-     * gone. Holding RFCOMM open therefore parks iAP2 on Bluetooth for the whole session: the
-     * tunnel never arrives, and accessory location - which only the tunnel may declare - never
-     * reaches the phone at all, so navigation runs on the phone's own GPS inside a metal cabin.
-     *
-     * Releasing the channel is what makes the tunnel possible. The controller already treats a
-     * close during handoff as expected (CHANNEL_CLOSED -> isWirelessHandoffInProgress), so the
-     * AirPlay session survives the release. If the phone still does not open a tunnel, the
-     * watchdog fallback restarts the link with Bluetooth as the iAP2 channel again.
-     */
-    private fun armBootstrapRelease(generation: Int) {
-        if (!bootstrapReleaseAllowed.compareAndSet(true, false)) {
-            debugLog("wireless bootstrap release already attempted once; keeping RFCOMM for iAP2")
-            return
-        }
-        mainHandler.postDelayed(
-            {
-                if (closed || phase != Phase.WIRELESS || generation != wirelessGeneration.get() ||
-                    !wirelessHandoffRequested.get() || wirelessActiveReported.get() ||
-                    wirelessTunnelReady.get()
-                ) {
-                    return@postDelayed
-                }
-                Thread(
-                    {
-                        synchronized(wirelessResourceLock) {
-                            if (closed || phase != Phase.WIRELESS ||
-                                generation != wirelessGeneration.get() || wirelessTunnelReady.get()
-                            ) {
-                                return@Thread
-                            }
-                            debugLog(
-                                "wireless bootstrap: releasing RFCOMM so the phone can move iAP2 " +
-                                    "onto the AirPlay tunnel",
-                            )
-                            bootstrapReleased = true
-                            closeBluetoothBootstrapTransport()
-                        }
-                    },
-                    "xcertplay-bootstrap-release",
-                ).apply {
-                    isDaemon = true
-                    start()
-                }
-            },
-            BOOTSTRAP_RELEASE_DELAY_MILLIS,
-        )
-    }
-
     private fun handleWirelessHandoffTimeout(generation: Int) = synchronized(wirelessResourceLock) {
         if (closed || phase != Phase.WIRELESS || generation != wirelessGeneration.get() || wirelessFailureReported.get() ||
             !wirelessHandoffRequested.get() || wirelessActiveReported.get() || wirelessTunnelReady.get()) {
@@ -1943,19 +1883,6 @@ class CarPlayController(
         if (activeSession != null && wirelessConnectionProof.hasRenderedFrame(generation)) {
             if (!wirelessActiveReported.compareAndSet(false, true)) return@synchronized
             wirelessHandoffFellBack.set(true)
-            if (bootstrapReleased) {
-                // We released RFCOMM expecting the phone to move iAP2 to the tunnel and it never
-                // came, so the session is projection-only. Rebuild the link once with Bluetooth
-                // as the iAP2 channel; bootstrapReleaseAllowed keeps this from repeating.
-                debugLog(
-                    "wireless handoff fallback after rendered video; the phone never opened the " +
-                        "type-130 tunnel after the bootstrap was released; restarting the " +
-                        "wireless link with Bluetooth as the iAP2 channel",
-                )
-                onStatus(CarPlayStatus.WirelessActiveFallback, generation)
-                restartWireless()
-                return@synchronized
-            }
             // The Bluetooth link is the only iAP2 channel here. Closing it would stop NowPlaying,
             // route guidance and call updates for the rest of the session, so keep it until the
             // tunnel really takes over (see maybeCompleteWirelessHandoff).
@@ -3186,8 +3113,6 @@ class CarPlayController(
         private const val PERMISSION_POLL_TIMEOUT_MILLIS = 120_000L
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
-        /** Lets the phone finish its audio SETUP before the bootstrap iAP2 channel disappears. */
-        private const val BOOTSTRAP_RELEASE_DELAY_MILLIS = 3_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
