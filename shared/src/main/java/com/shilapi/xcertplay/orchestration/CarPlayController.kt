@@ -1682,8 +1682,13 @@ class CarPlayController(
             if (isStaleWirelessRun(generation)) {
                 return
             }
-            if (wirelessActiveReported.get() && error !is Error) {
-                debugLog("wireless RFCOMM control ended after tunnel handoff: ${error.message}")
+            // A dead Bluetooth control line no longer justifies tearing down a projection that
+            // demonstrably works: when the AirPlay session has already rendered a frame, only the
+            // RFCOMM link dies here and the session keeps running on it (rendered-video fallback).
+            if (error !is Error && (wirelessActiveReported.get() ||
+                wirelessConnectionProof.hasRenderedFrame(generation))
+            ) {
+                debugLog("wireless RFCOMM control ended: ${error.message}")
             } else {
                 debugLog("wireless bring-up failed", error)
                 if (error is Error) throw error
