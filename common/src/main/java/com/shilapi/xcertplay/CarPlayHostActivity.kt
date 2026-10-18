@@ -5121,6 +5121,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     AndroidCarPlayLocationProvider(this, precise = true),
                     if (BridgeVehicleSpeedSource.enabled(this)) BridgeVehicleSpeedSource(applicationContext)
                     else com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
+                    log = ::appendLog,
                 )
                 else -> AndroidCarPlayLocationProvider(this, precise = true)
             }
