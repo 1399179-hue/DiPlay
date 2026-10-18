@@ -380,6 +380,7 @@
     <string name="token_optional">Токен (необов’язково)</string>
     <string name="transport_error_reconnecting">Помилка передавання; повторне підключення</string>
     <string name="turn_on_bluetooth">Увімкніть Bluetooth</string>
+    <string name="turn_on_bluetooth_in_the_head_unit_s_settings_to_connect">Увімкніть Bluetooth у налаштуваннях головного пристрою, щоб підключитися.</string>
     <string name="turn_on_wi_fi_in_the_head_unit_s_settings_to_connect">Увімкніть Wi-Fi у налаштуваннях головного пристрою, щоб підключитися.</string>
     <string name="turn_the_car_s_wi_fi_switch_on_allow_location_nearby_devic">Увімкніть Wi-Fi автомобіля. Надайте доступ до місцезнаходження та пристроїв поблизу, якщо з’явиться запит, і ввімкніть геолокацію на запит Android. Якщо відтворення переривається, спробуйте вбудовану точку доступу автомобіля на частоті 5 ГГц.</string>
     <string name="usage_access_enabled">Доступ до даних використання: надано</string>

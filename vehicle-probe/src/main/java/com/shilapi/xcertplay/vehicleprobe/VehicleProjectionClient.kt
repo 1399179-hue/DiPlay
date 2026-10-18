@@ -71,7 +71,10 @@ class VehicleProjectionClient(context: Context) : Closeable {
                 return
             }
             val api = remote ?: return
-            check(api.status.getInt("projectionProtocol") == 1) { "BRIDGE_UPDATE_REQUIRED" }
+            val projectionProtocol = api.status.getInt("projectionProtocol")
+            if (projectionProtocol != 1) {
+                throw BridgeUpdateRequiredException("projectionProtocol=$projectionProtocol")
+            }
             val request = desired
             val reply = if (request.first) {
                 held = true
@@ -84,7 +87,15 @@ class VehicleProjectionClient(context: Context) : Closeable {
                 putLong("receivedAtMs", SystemClock.elapsedRealtime())
             }
         } catch (error: Exception) {
-            state = Bundle().apply { putString("stage", "BRIDGE_UNAVAILABLE"); putString("failure", error.javaClass.simpleName) }
+            state = Bundle().apply {
+                putString(
+                    "stage",
+                    if (error is BridgeUpdateRequiredException) "BRIDGE_UPDATE_REQUIRED" else "BRIDGE_UNAVAILABLE",
+                )
+                // The message carries the protocol the bridge answered with, so the report says which
+                // version is installed rather than only that the call failed.
+                putString("failure", if (error is BridgeUpdateRequiredException) error.message else error.javaClass.simpleName)
+            }
             // Do not silently retain an OEM mode after losing its status/heartbeat contract.
             if (held) runCatching { remote?.releaseProjection(owner) }.onSuccess { held = false }
             if (error is android.os.RemoteException) disconnect()

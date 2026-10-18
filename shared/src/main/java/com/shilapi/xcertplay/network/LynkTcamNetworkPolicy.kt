@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.network
 
+import android.os.Build
+import com.shilapi.xcertplay.platform.HeadUnitProfiles
 import java.net.Inet4Address
 
 /**
@@ -30,11 +32,31 @@ internal object LynkTcamNetworkPolicy {
         val addresses: List<Inet4Address>,
     )
 
-    fun supportsHeadUnit(manufacturer: String, model: String): Boolean {
-        if (!manufacturer.trim().equals("DesaySV", ignoreCase = true)) return false
-        return model.trim().equals("CS11_A4", ignoreCase = true) ||
-            model.trim().equals("CS11A4", ignoreCase = true)
-    }
+    /**
+     * True when the connected head unit is the one this backhaul is proven on.
+     *
+     * Delegates to [HeadUnitProfiles] so detection and this policy cannot drift apart. The earlier
+     * exact `DesaySV` + `CS11_A4` match meant a firmware that renamed `Build.MODEL` while keeping the
+     * `cs11_a4` fingerprint token silently switched the whole wireless path off.
+     *
+     * The remaining fields default to the running device, so callers that only hold manufacturer and
+     * model still get the full detection.
+     */
+    fun supportsHeadUnit(
+        manufacturer: String,
+        model: String,
+        brand: String = Build.BRAND.orEmpty(),
+        device: String = Build.DEVICE.orEmpty(),
+        product: String = Build.PRODUCT.orEmpty(),
+        fingerprint: String = Build.FINGERPRINT.orEmpty(),
+    ): Boolean = HeadUnitProfiles.detect(
+        brand = brand,
+        manufacturer = manufacturer,
+        model = model,
+        device = device,
+        product = product,
+        fingerprint = fingerprint,
+    ) == HeadUnitProfiles.LYNK_03
 
     fun selectConnected(
         manufacturer: String,

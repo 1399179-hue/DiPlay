@@ -111,6 +111,7 @@ import com.shilapi.xcertplay.settings.SettingsWidgets
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.Iap2LocationProvider
 import com.shilapi.xcertplay.transport.BluetoothLinkCheck
+import com.shilapi.xcertplay.transport.BluetoothRadioCheck
 import com.shilapi.xcertplay.transport.IphoneUsbMatcher
 import com.shilapi.xcertplay.transport.UsbDeviceId
 import com.shilapi.xcertplay.transport.VehicleSpeedLocationProvider
@@ -228,9 +229,12 @@ class CarPlayHostActivity : ComponentActivity() {
                 if (wirelessPermissionsReady) {
                     "Wireless startup permissions granted"
                 } else {
-                    "Wireless startup permissions denied"
+                    "Wireless startup permissions denied missing=" +
+                        missingWirelessPermissions().joinToString(",") { it.substringAfterLast('.') }
                 },
             )
+            wirelessPermissionsRefused = !wirelessPermissionsReady
+            showMissingWirelessPermission()
             updateHotspotStatusBlock()
             maybeStartCarPlay()
         }
@@ -475,6 +479,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var remoteMfiServer = ""
     private var remoteMfiToken = ""
     private var wirelessPermissionsReady = false
+    private var wirelessPermissionsRefused = false
     private var wirelessHotspotMode = WirelessHotspotMode.MANUAL
     private var manualHotspotSsid = ""
     private var existingWifiSsid = ""
@@ -954,6 +959,32 @@ class CarPlayHostActivity : ComponentActivity() {
             checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
         }
 
+    private fun missingWirelessPermissions(): List<String> =
+        requiredWirelessPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+
+    /**
+     * Once the wireless start permissions were refused, by the driver or silently by Android (#290), the screen
+     * names the access to allow instead of waiting for the iPhone. Allowing it in the app permissions brings the
+     * driver back here, where the start goes on. Ported from upstream b9679df4.
+     */
+    private fun showMissingWirelessPermission() {
+        if (wirelessPermissionsReady || !wirelessEnabled) {
+            wirelessPermissionsRefused = false
+            return
+        }
+        if (!wirelessPermissionsRefused) return
+        val missing = missingWirelessPermissions()
+        setConnectionStage(
+            if (Manifest.permission.ACCESS_FINE_LOCATION in missing ||
+                Manifest.permission.ACCESS_COARSE_LOCATION in missing
+            ) {
+                getString(R.string.allow_precise_location_for_diplay_in_the_head_unit_s_app_p)
+            } else {
+                getString(R.string.allow_nearby_devices_for_diplay_in_the_head_unit_s_app_per)
+            },
+        )
+    }
+
     private fun requiredWirelessPermissions(): List<String> =
         WirelessPermissions.required(wirelessHotspotMode, Build.VERSION.SDK_INT)
 
@@ -1041,6 +1072,9 @@ class CarPlayHostActivity : ComponentActivity() {
             requestLocationPermission()
         }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+        // Say again what is still missing each time this screen comes back, so a later Connect does not
+        // return to "Getting CarPlay ready…" and wait for an iPhone it will never hear from.
+        showMissingWirelessPermission()
         advancedAudioChannelMapping =
             advancedAudioChannelMappingSupported &&
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
@@ -4593,7 +4627,7 @@ class CarPlayHostActivity : ComponentActivity() {
     /** Car Bluetooth audio: shows whether the iPhone keeps A2DP/HFP with the car now and once CarPlay runs. */
     private fun logCarBluetoothAudio() {
         appendLog("Car Bluetooth audio: on; CarPlay audio not offered")
-        val adapter = runCatching { getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter }.getOrNull()
+        val adapter = runCatching { getSystemService(android.bluetooth.BluetoothManager::class.java)?.adapter ?: android.bluetooth.BluetoothAdapter.getDefaultAdapter() }.getOrNull()
             ?: return appendLog("Car Bluetooth audio: no Bluetooth adapter")
         fun probe(moment: String) {
             for ((name, profile) in listOf("A2DP" to android.bluetooth.BluetoothProfile.A2DP,
@@ -4800,7 +4834,10 @@ class CarPlayHostActivity : ComponentActivity() {
             onScreenStreamActiveChanged = { type, active ->
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
-            mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this),
+            mediaBufferMillis = com.shilapi.xcertplay.media.MediaAudioBuffer.forTransport(
+                AirPlayPersistence.loadMediaBufferMillis(this),
+                wireless = wirelessEnabled,
+            ),
             microphoneGainPercent = AirPlayPersistence.loadMicrophoneGainPercent(this),
             onAudioDiagnostic = { message ->
                 if (message.startsWith("Microphone: ")) {
@@ -4941,7 +4978,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         updateHotspotStatus(status)
         val description = status.describe()
-        setConnectionStage(description)
+        // Once the retries stopped, a later failure of that same attempt - its cleanup, typically - must not
+        // replace the line that says so. Ported from upstream 0f00e8a4 (#809); the fork already wrote the
+        // "retries stopped" line in reconnectAfterLoss, only this guard was missing.
+        if (!startupRetryStopped || status !is CarPlayStatus.Failed) setConnectionStage(description)
         when (status) {
             CarPlayStatus.WaitingForCarWifiEnabled -> {
                 carWifiHelp?.visibility = View.VISIBLE
@@ -5081,6 +5121,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     AndroidCarPlayLocationProvider(this, precise = true),
                     if (BridgeVehicleSpeedSource.enabled(this)) BridgeVehicleSpeedSource(applicationContext)
                     else com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
+                    log = ::appendLog,
                 )
                 else -> AndroidCarPlayLocationProvider(this, precise = true)
             }
@@ -5992,6 +6033,7 @@ class CarPlayHostActivity : ComponentActivity() {
         message == getString(R.string.waiting_for_mfi_coprocessor) ||
             message == getString(R.string.requesting_mfi_usb_permission) -> message
         message.contains("Turn on Wi-Fi", true) -> getString(R.string.turn_on_wi_fi_in_the_head_unit_s_settings_to_connect)
+        message.contains(BluetoothRadioCheck.RADIO_OFF_MARK, true) -> getString(R.string.turn_on_bluetooth_in_the_head_unit_s_settings_to_connect)
         message.contains("Allow precise Location", true) -> getString(R.string.allow_precise_location_for_diplay_in_the_head_unit_s_app_p)
         message.contains("Allow Nearby devices", true) -> getString(R.string.allow_nearby_devices_for_diplay_in_the_head_unit_s_app_per)
         message.contains("createGroup failed", true) -> getString(R.string.the_head_unit_couldn_t_start_carplay_wi_fi_check_wi_fi_and)

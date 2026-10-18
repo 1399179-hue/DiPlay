@@ -66,6 +66,48 @@ class StreamReceiveStatsTest {
         assertTrue(output.last().contains("seqForwardGaps=1"))
     }
 
+    @Test fun reportsGapMillisecondsFromRtpTimestampAndKeepsSessionTotalsAcrossWindows() {
+        var clock = 0L
+        val output = mutableListOf<String>()
+        val stats = StreamReceiveStats("audio", output::add, nowNs = { clock }, rtpClockRate = 44_100)
+        var sample = 1_000_000
+        fun packet(sequence: Int) {
+            stats.reading()
+            stats.received(100, sequence, sample)
+            sample += 1024
+            stats.processed()
+        }
+        packet(1)
+        packet(2)
+        sample += 6 * 1024 // Six packets the phone never sent: 139 ms of AAC at 44.1 kHz.
+        packet(9)
+        clock = 5_000_000_000L
+        stats.flush()
+        assertTrue(output.last().contains("seqGapEvents=1 seqGapMax=6 seqGapMsMax=139"))
+        assertTrue(!output.last().contains("sessionLostPackets"))
+        clock = 10_000_000_000L
+        stats.flush(ended = true)
+        assertTrue(
+            output.last().contains(
+                "sessionLostPackets=6 sessionGapEvents=1 sessionGapMax=6 sessionLostMs=139 " +
+                    "sessionLateOrDuplicate=0",
+            ),
+        )
+    }
+
+    @Test fun leavesGapMillisecondsAtZeroWithoutAClockRate() {
+        var clock = 0L
+        val output = mutableListOf<String>()
+        val stats = StreamReceiveStats("audio", output::add, nowNs = { clock })
+        stats.received(100, 1, 1_000_000)
+        stats.received(100, 4, 1_004_096)
+        clock = 5_000_000_000L
+        stats.flush(ended = true)
+        assertTrue(output.last().contains("seqGapMax=2"))
+        assertTrue(!output.last().contains("seqGapMsMax"))
+        assertTrue(output.last().contains("sessionLostMs=0"))
+    }
+
     @Test fun decryptTimingIsReportedOnlyWhenRecordedAndThenReset() {
         var clock = 0L
         val output = mutableListOf<String>()

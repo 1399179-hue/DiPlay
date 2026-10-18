@@ -123,16 +123,21 @@ class VehicleSteeringClient(context: Context, private val onEvent: (Bundle) -> U
                 return
             }
             val api = remote ?: return
-            check(api.status.getInt("steeringProtocol") == 1) { "BRIDGE_UPDATE_REQUIRED" }
+            val steeringProtocol = api.status.getInt("steeringProtocol")
+            if (steeringProtocol != 1) {
+                throw BridgeUpdateRequiredException("steeringProtocol=$steeringProtocol")
+            }
             val current = request
             val response = api.registerSteeringListener(callback, current.keys.toIntArray(), current.intercept)
-            check(response.getInt("schema") == 1) { "BRIDGE_UPDATE_REQUIRED" }
+            val schema = response.getInt("schema")
+            if (schema != 1) throw BridgeUpdateRequiredException("schema=$schema")
             if (!closed && current == request) state = Bundle(response)
         } catch (error: Exception) {
             runCatching { remote?.unregisterSteeringListener(callback) }
             if (error is android.os.RemoteException) disconnect()
             publishFailure(when (error) {
                 is android.content.pm.PackageManager.NameNotFoundException -> "BRIDGE_NOT_INSTALLED"
+                is BridgeUpdateRequiredException -> "BRIDGE_UPDATE_REQUIRED"
                 is SecurityException -> "CLIENT_NOT_AUTHORIZED"
                 else -> "BRIDGE_ERROR"
             }, error)
