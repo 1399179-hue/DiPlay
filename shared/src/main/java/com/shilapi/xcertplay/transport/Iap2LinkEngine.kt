@@ -396,7 +396,7 @@ class Iap2LinkEngine(
             if (!missing.any { u8(it) == packet.sequence }) continue
             packet.retransmissions += 1
             if (packet.retransmissions == peerSynchronization.maxRetransmissions) {
-                die("iAP2 packet ${packet.sequence} was not acknowledged")
+                die(unacknowledgedReason(packet.sequence, packet.retransmissions, "extended acknowledgement"))
                 return
             }
             sendData(packet.sequence, packet.sessionId, packet.payload)
@@ -487,7 +487,7 @@ class Iap2LinkEngine(
         next.deadlineMillis = nowMillis + peerSynchronization.retransmissionTimeoutMillis
         next.retransmissions += 1
         if (next.retransmissions == peerSynchronization.maxRetransmissions) {
-            die("iAP2 packet ${next.sequence} was not acknowledged")
+            die(unacknowledgedReason(next.sequence, next.retransmissions, "retransmission timeout"))
             return
         }
         sendData(next.sequence, next.sessionId, next.payload)
@@ -538,6 +538,20 @@ class Iap2LinkEngine(
         writable = value
         enqueueEvent(Event.Writable(value))
     }
+
+    /**
+     * Why an unacknowledged packet ended the link, with the peer's budget attached.
+     *
+     * The budget is the peer's and it alone decides how long a packet may stay unacknowledged, so a
+     * link that died on a tight peer budget and one that died on a stalled head unit read the same
+     * without these numbers. [source] separates the two paths that can reach the limit: the peer
+     * listing the packet as missing again, and our own retransmission deadline expiring.
+     */
+    private fun unacknowledgedReason(sequence: Int, retransmissions: Int, source: String): String =
+        "iAP2 packet $sequence was not acknowledged after $retransmissions retransmissions " +
+            "via $source (peer timeout=${peerSynchronization.retransmissionTimeoutMillis}ms " +
+            "maxRetransmissions=${peerSynchronization.maxRetransmissions}, " +
+            "outstanding=${unacknowledged.size})"
 
     private fun die(reason: String?) {
         if (state == State.DEAD) return

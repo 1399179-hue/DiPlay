@@ -52,6 +52,9 @@ class Iap2CsmChannel private constructor(
         }
     }
 
+    /** The peer's synchronization payload, available once [awaitReady] has returned true. */
+    fun peerSynchronization(): Iap2LinkEngine.SynchronizationPayload? = link.peerSynchronization()
+
     /**
      * Queues one complete CSM frame.  Call [awaitReady] successfully first.
      *

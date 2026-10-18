@@ -33,6 +33,7 @@ class Iap2LinkChannel private constructor(
 
     private var ready = false
     private var peerMaxControlPayloadBytes: Int? = null
+    private var peerSynchronization: Iap2LinkEngine.SynchronizationPayload? = null
     private var closing = false
     private var terminated = false
     private var terminalFailure: Throwable? = null
@@ -57,6 +58,16 @@ class Iap2LinkChannel private constructor(
      * returns true.  It excludes the nine-byte iAP2 header and one-byte payload checksum.
      */
     fun peerMaxControlPayloadBytes(): Int? = synchronized(lock) { peerMaxControlPayloadBytes }
+
+    /**
+     * The peer's whole synchronization payload, available after [awaitReady] returns true.
+     *
+     * Reported for diagnostics only. The retransmission fields are the peer's, and they decide when
+     * an unacknowledged packet kills the link, so a session that dropped its control channel can be
+     * told apart from one the peer gave an unusually tight budget.
+     */
+    fun peerSynchronization(): Iap2LinkEngine.SynchronizationPayload? =
+        synchronized(lock) { peerSynchronization }
 
     /**
      * Copies and queues one raw session-10 payload.  Returns false after close/termination or when
@@ -205,6 +216,7 @@ class Iap2LinkChannel private constructor(
                 is Iap2LinkEngine.Event.Writable -> synchronized(lock) {
                     if (event.value) {
                         // The engine only emits writable after validating this is positive.
+                        peerSynchronization = engine.peerSynchronization()
                         peerMaxControlPayloadBytes = engine.peerSynchronization().maxLength - 10
                     }
                     ready = event.value && !terminated

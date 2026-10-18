@@ -27,8 +27,25 @@ class Iap2Session private constructor(
 
     fun awaitReady(timeoutMillis: Long): Boolean {
         val ready = channel.awaitReady(timeoutMillis)
-        emitTrace("IAP2 READY [$traceContext] ready=$ready")
+        emitTrace("IAP2 READY [$traceContext] ready=$ready" + peerBudgetSummary(ready))
         return ready
+    }
+
+    /**
+     * The peer's retransmission budget, appended to the ready line.
+     *
+     * These are the peer's numbers, not ours: an unacknowledged packet kills the link once its
+     * retransmissions reach the peer's maximum. A link that dropped with a tight budget here looks
+     * nothing like one that dropped on a stalled head unit, and the failure line alone cannot say
+     * which happened.
+     */
+    private fun peerBudgetSummary(ready: Boolean): String {
+        if (!ready) return ""
+        val peer = channel.peerSynchronization() ?: return ""
+        return " peerRetransmitMs=${peer.retransmissionTimeoutMillis}" +
+            " peerMaxRetransmissions=${peer.maxRetransmissions}" +
+            " peerMaxAcknowledgements=${peer.maxAcknowledgements}" +
+            " peerMaxOutgoing=${peer.maxOutgoing} peerMaxLength=${peer.maxLength}"
     }
 
     fun send(frame: Iap2Frame, timeoutMillis: Long = DEFAULT_SEND_TIMEOUT_MILLIS) {
