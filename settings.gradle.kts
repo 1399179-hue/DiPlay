@@ -27,6 +27,9 @@ include(":common")
 include(":mobile")
 include(":automotive")
 include(":shared")
+// Pure-JVM AirPlay/CarPlay protocol tester (fake iPhone client). Self-contained:
+// carries its own crypto copy because :shared is an Android library.
+include(":fake-iphone")
 // carlito | Client for the separate GD vehicle bridge APK.
 include(":vehicle-probe")
 include(":maphost")
