@@ -1450,7 +1450,7 @@ private class VideoDecoder(
                 "video decoder first input avcc=${nalus.size} annexB=${annexB.size}",
             )
         }
-        val index = VideoInputPump.acquire(
+        val index = DecoderInputPump.acquire(
             running = { running }, drain = { if (outputThread == null) drainOutput(codec) },
             dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
         )
@@ -1863,6 +1863,8 @@ private class AudioRenderer(
     }
 
     private fun run() {
+        // When the head unit opens its 360° camera, default-priority audio threads wait behind it (#737).
+        runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO) }
         try {
             runCatching { report("Audio: starting api=${Build.VERSION.SDK_INT} " +
                 "audioType=${format.audioType} codec=${format.codec} rate=${format.sampleRate} channels=${format.channels} " +
@@ -2389,33 +2391,24 @@ private class AudioRenderer(
     private fun sampleTimestampUs(sample: Int): Long =
         (sample.toLong() and 0xffff_ffffL) * 1_000_000L / format.sampleRate
 
-    /**
-     * Waits for a decoder input buffer instead of giving up after a single 10 ms poll.
-     *
-     * The audio thread feeds one access unit at a time, so a burst from the phone (measured: 19
-     * packets every ~400 ms) can arrive while every input buffer is still queued behind a stalled
-     * AudioTrack write. Dropping the payload there punches a ~21 ms hole in the music: the reference
-     * pad lost 36 such packets in 25 minutes, roughly one every 40 s, which is exactly the kind of
-     * occasional click/skip that survives every other fix. Draining finished output between attempts
-     * frees the buffer the codec is waiting for, so the wait only does work that the next loop
-     * iteration would have done anyway.
-     */
-    private fun dequeueInput(codec: MediaCodec): Int {
-        var index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
-        var attempt = 1
-        while (index < 0 && running && attempt < INPUT_ATTEMPTS) {
-            drainCodec(codec)
-            inputWaits++
-            index = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
-            attempt++
-        }
-        return index
-    }
-
     private fun feedCodec(payload: ByteArray, presentationTimeUs: Long) {
         val codec = codec ?: run { decoderUnavailablePackets++; return }
         diagnosticStage = "decoder-input"
-        val index = dequeueInput(codec)
+        // The audio thread feeds one access unit at a time, so a burst from the phone (measured: 19
+        // packets every ~400 ms) can arrive while every input buffer is still queued behind a stalled
+        // AudioTrack write. Dropping the payload there punches a ~21 ms hole in the music (#381);
+        // drain the output and wait again instead. The wait is capped at 100 ms: waiting the video's
+        // 500 ms for every packet let a slowed decoder fall ever further behind, growing the queue to
+        // 190 packets with the CarPlay screen in the background (#649).
+        val index = DecoderInputPump.acquire(
+            running = { running },
+            drain = {
+                drainCodec(codec)
+                inputWaits++
+            },
+            dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
+            timeoutNs = AUDIO_INPUT_WAIT_NS,
+        )
         if (index < 0) {
             inputDropped++
             if (inputDropped == 1) {
@@ -2814,8 +2807,8 @@ private class AudioRenderer(
         const val OPUS_CODEC_DELAY_NANOS = 6_500_000L
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
         const val INPUT_TIMEOUT_US = 10_000L
-        /** Four 10 ms polls: the wait a burst of 19 packets needs to pass through the codec. */
-        const val INPUT_ATTEMPTS = 4
+        /** Audio input wait cap: long enough for a 19-packet burst, short enough not to grow the queue (#649). */
+        const val AUDIO_INPUT_WAIT_NS = 100_000_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         /** Report each rebuffer/queue-full event at most this many times, so the report stays readable. */

@@ -288,6 +288,7 @@ class CarPlayController(
     private val wirelessFailureReported = AtomicBoolean(false)
     @Volatile private var instantBluetoothLink: InstantBluetoothLink? = null
     @Volatile private var firstTcpWatchdog: FirstTcpWatchdog? = null
+    @Volatile private var wiredStartWatchdog: WiredStartWatchdog? = null
     @Volatile private var wirelessPublishedAddress: InetAddress? = null
     @Volatile private var wirelessAlternateAddress: InetAddress? = null
     @Volatile private var wirelessAddressRecovery: HotspotAddressRecovery? = null
@@ -336,6 +337,7 @@ class CarPlayController(
 
     private val sessionListener = object : AirPlaySessionListener {
         override fun onSessionActive(session: AirPlaySession) {
+            wiredStartWatchdog?.sessionActive()
             val replacement = activeSession !== session
             if (replacement) {
                 BydNavigationOutputs.start(appContext)
@@ -704,6 +706,7 @@ class CarPlayController(
             onNativeBluetoothPlaying(false)
         }
         firstTcpWatchdog?.terminate()
+        wiredStartWatchdog?.terminate()
         BydBluetoothSuspend.resume(appContext, this)
         startupTimer.shutdownNow()
         (hotspot as? ManualHotspotManager)?.close()
@@ -2318,6 +2321,32 @@ class CarPlayController(
                 deviceIdentifier = ncmHostMac.macString(),
             )
             onStatus(CarPlayStatus.RunningControl)
+            // The wired control loop has no limit of its own: an iPhone that accepts
+            // carplay-start-session but never opens the session left the attempt on "connecting"
+            // until the cable was replugged (#889, #890).
+            lateinit var startWatchdog: WiredStartWatchdog
+            startWatchdog = WiredStartWatchdog(
+                schedule = { delay, action ->
+                    val future = runCatching {
+                        startupTimer.schedule({ action() }, delay, TimeUnit.MILLISECONDS)
+                    }.getOrNull()
+                    val cancel: () -> Unit = {
+                        future?.cancel(false)
+                        Unit
+                    }
+                    cancel
+                },
+                onTimeout = {
+                    if (!closed && wiredStartWatchdog === startWatchdog) {
+                        debugLog(
+                            "wired start: no AirPlay session ${WiredStartWatchdog.TIMEOUT_MILLIS / 1000} s " +
+                                "after carplay-start-session; NCM ${ncm.trafficSummary(endpoint.airPlayPort)}",
+                        )
+                        fail(IphoneUsbException.TimedOut("The iPhone did not open CarPlay over USB in time"))
+                    }
+                },
+            )
+            wiredStartWatchdog = startWatchdog
             debugLog(
                 "wired iAP2 runtime control starting " +
                     "location=${config.identification.locationInformationEnabled} " +
@@ -2331,7 +2360,10 @@ class CarPlayController(
                 locationProvider = locationProvider,
                 vehicleStatusProvider = vehicleStatusProvider,
                 onIncoming = ::onRouteFrame,
-                onProgress = { message -> debugLog("wired $message") },
+                onProgress = { message ->
+                    if (message.startsWith(START_SESSION_PROGRESS)) startWatchdog.startSessionSent()
+                    debugLog("wired $message")
+                },
             )
             onStatus(
                 when (result.terminal) {
@@ -3158,6 +3190,7 @@ class CarPlayController(
         private const val PERMISSION_POLL_TIMEOUT_MILLIS = 120_000L
         private const val DEVICE_AVAILABILITY_POLL_INTERVAL_MILLIS = 2_000L
         private const val WIRELESS_HANDOFF_TIMEOUT_MILLIS = 45_000L
+        private const val START_SESSION_PROGRESS = "iap2 tx=0x4301"
         /** Lets the phone finish its audio SETUP before the bootstrap iAP2 channel disappears. */
         private const val BOOTSTRAP_RELEASE_DELAY_MILLIS = 3_000L
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
