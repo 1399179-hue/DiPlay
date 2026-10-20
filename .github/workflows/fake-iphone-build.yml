@@ -6,6 +6,10 @@ on:
     paths:
       - 'fake-iphone/**'
       - '.github/workflows/fake-iphone-build.yml'
+  pull_request:
+    paths:
+      - 'fake-iphone/**'
+      - '.github/workflows/fake-iphone-build.yml'
   workflow_dispatch:
 
 permissions:
