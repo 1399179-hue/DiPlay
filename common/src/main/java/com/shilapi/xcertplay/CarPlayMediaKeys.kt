@@ -108,6 +108,15 @@ internal object CarPlayMediaKeys {
     private var speechMedia: CarPlayNowPlaying? = null
     private var nowPlaying = CarPlayNowPlaying()
     private var elapsedUpdatedAt = 0L
+    /**
+     * The last shape handed to [MediaSession.setPlaybackState].
+     *
+     * The iPhone repeats NowPlayingUpdate about twice a second, and most of those repeats move
+     * neither the play state nor the elapsed time, so the identical PlaybackState went to
+     * system_server again and again - the head unit's AVRCP stack answered 740 "tried to update
+     * with no new data" lines in 24 minutes. Nothing downstream can act on a duplicate.
+     */
+    private var publishedPlayback: PublishedPlayback? = null
     private var artwork: Bitmap? = null
     private val artworkCache = LinkedHashMap<Int, Bitmap?>()
     private var placeholder: Bitmap? = null
@@ -560,6 +569,8 @@ internal object CarPlayMediaKeys {
         focusRequest = request.takeIf { manageAudioFocus }
         focusHeld = granted
         if (granted) forwardGrantedFocusLocked()
+        // A new session has published nothing yet, so its first state must not be suppressed.
+        publishedPlayback = null
         session = MediaSession(context, "LYNK&CO CarPlay").apply {
             setCallback(callback, mainHandler)
             setMetadata(androidMetadata(nowPlaying, shownArtworkLocked()))
@@ -626,6 +637,7 @@ internal object CarPlayMediaKeys {
             it.release()
         }
         session = null
+        publishedPlayback = null
         mediaAudioActive = false
         speechPlaying = false; resumeAfterSpeech = false; speechMedia = null
         nowPlaying = CarPlayNowPlaying()
@@ -644,13 +656,21 @@ internal object CarPlayMediaKeys {
         } else {
             mediaAudioActive
         }
-        session?.setPlaybackState(
+        val state = if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
+        val position = nowPlaying.elapsedMillis ?: PlaybackState.PLAYBACK_POSITION_UNKNOWN
+        val shape = PublishedPlayback(state, position, if (playing) 1f else 0f, elapsedUpdatedAt)
+        // Resolve the session first: a state recorded without one would be skipped by the first
+        // publish after the next session starts.
+        val target = session ?: return
+        if (shape == publishedPlayback) return
+        publishedPlayback = shape
+        target.setPlaybackState(
             PlaybackState.Builder()
                 .setActions(ACTIONS)
                 .setState(
-                    if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED,
-                    nowPlaying.elapsedMillis ?: PlaybackState.PLAYBACK_POSITION_UNKNOWN,
-                    if (playing) 1f else 0f,
+                    state,
+                    position,
+                    shape.speed,
                     // The iPhone sends elapsed time only on play, pause or seek, so Android must
                     // extrapolate from when it arrived, not from this republish.
                     elapsedUpdatedAt,
@@ -658,6 +678,14 @@ internal object CarPlayMediaKeys {
                 .build(),
         )
     }
+
+    /** What [publishPlaybackStateLocked] last sent; comparing it drops the iPhone's repeats. */
+    private data class PublishedPlayback(
+        val state: Int,
+        val position: Long,
+        val speed: Float,
+        val updatedAt: Long,
+    )
 
     private fun send(index: Int, source: String) {
         val group = if (source in listOf("oneos", "ecarx", "vehicle_bridge", "logcat", "broadcast")) source else "media_session"
