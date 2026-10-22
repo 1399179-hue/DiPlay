@@ -1577,6 +1577,14 @@ class CarPlayController(
                 identification = bootstrapIdentification,
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
+                // This link carries iAP2 for the whole session: the release that would hand iAP2
+                // to the AirPlay tunnel never happens, and the phone does not open that tunnel
+                // (field logs show tunnelReady=false 42 s after the release). The bootstrap
+                // identification declares no location component, so the phone never asks; the
+                // reporter's unsolicited path is the only remaining way to offer it a fix, and it
+                // needs the provider to start one. Without this argument every tick returned
+                // early and no 0xFFFB ever left the head unit.
+                locationProvider = locationProvider,
                 keepAliveAfterDeadline = { keepBluetoothControlAlive(generation) },
                 beforeStartSession = { startedHotspot?.validateReady() },
                 onStartSessionSent = { watchdog.startSessionSent(it.sentAtNanos) },
