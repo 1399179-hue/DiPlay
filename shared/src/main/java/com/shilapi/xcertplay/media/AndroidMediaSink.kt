@@ -1831,30 +1831,29 @@ private class AudioRenderer(
                         "packetsDiscarded=$removed remaining=${queue.size}")
                 }
             }
-        }
-        if (!started) return
-        val packet = AudioPacket(rtp, sample, now)
-        if (!queue.offer(packet)) {
-            // The queue only fills when the play-out clock runs slower than the delivery rate, and
-            // the clock trim absorbs the steady part. Dropping the NEWEST packet broke the stream
-            // forward at the moment it was heard; dropping the OLDEST instead takes one small
-            // backwards jump at once and keeps every later packet in sequence, so the glitch is
-            // a single soft tick instead of a repeated forward tear.
-            queue.poll()
-            packetsDropped.incrementAndGet()
-            // Dropping the oldest packet is an audible jump forward in the waveform: fade the next
-            // buffer in so it lands as a soft step instead of a click. Deliberate skip: no padding.
-            fadeApplied = false
-            lastPlayedRtpSample = -1
-            if (!droppedPacketsLogged) {
-                droppedPacketsLogged = true
-                Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
-                if (queueFullReportCount < MAX_AUDIO_EVENT_REPORTS) {
-                    queueFullReportCount++
-                    report("Audio: queue full audioType=${format.audioType} count=$queueFullReportCount")
+            val packet = AudioPacket(rtp, sample, now)
+            if (!queue.offer(packet)) {
+                // The queue only fills when the play-out clock runs slower than the delivery rate,
+                // and the clock trim absorbs the steady part. Dropping the NEWEST packet broke the
+                // stream forward at the moment it was heard; dropping the OLDEST instead takes one
+                // small backwards jump at once and keeps every later packet in sequence, so the
+                // glitch is a single soft tick instead of a repeated forward tear.
+                queue.poll()
+                packetsDropped.incrementAndGet()
+                // Dropping the oldest packet is an audible jump forward in the waveform: fade the
+                // next buffer in so it lands as a soft step instead of a click. Deliberate skip.
+                fadeApplied = false
+                lastPlayedRtpSample = -1
+                if (!droppedPacketsLogged) {
+                    droppedPacketsLogged = true
+                    Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
+                    if (queueFullReportCount < MAX_AUDIO_EVENT_REPORTS) {
+                        queueFullReportCount++
+                        report("Audio: queue full audioType=${format.audioType} count=$queueFullReportCount")
+                    }
                 }
+                queue.offer(packet)
             }
-            queue.offer(packet)
         }
     }
 
