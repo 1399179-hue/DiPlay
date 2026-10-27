@@ -120,7 +120,12 @@ class CarPlayMediaEngine(
         Log.i(TAG, "airplay screen key connectionID=${unsignedPlistDecimal(stream["streamConnectionID"])}")
         val screen = ScreenStream(key, session::logDebug)
         sink.setVideoDiagnosticHandler(type) {
-            if (it == "first frame rendered") session.videoFrameRendered()
+            // Only the main screen counts, and only while this very ScreenStream owns the slot: a
+            // late diagnostic from a screen that was already replaced must not mark the session as
+            // having shown a picture.
+            if (type == STREAM_TYPE_MAIN_SCREEN && streams[streamKey] === screen && it == "first frame rendered") {
+                session.videoFrameRendered()
+            }
             session.logDebug("Video: $it")
         }
         sink.setVideoRecoveryHandler(type) {

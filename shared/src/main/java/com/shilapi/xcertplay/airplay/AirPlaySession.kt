@@ -87,6 +87,12 @@ class AirPlaySession(
         private set
     private var clusterStreamSetups = 0
     @Volatile private var mainScreenToken: Any? = null
+    @Volatile private var mainFrameRendered = false
+
+    // The host activity is recreated while the session keeps running, so "the main screen has
+    // drawn a frame" has to live here: the new activity has no surface history of its own and
+    // would otherwise wait for a frame that will never be sent again, or tear the cluster down.
+    val hasRenderedMainFrame: Boolean get() = mainFrameRendered && !closed.get()
 
     private val closed = AtomicBoolean(false)
     internal val isClosed: Boolean get() = closed.get()
@@ -126,7 +132,9 @@ class AirPlaySession(
     internal fun logDebug(message: String) = debugLog(message)
 
     internal fun videoFrameRendered() {
-        if (!closed.get()) listener.onVideoFrameRendered(this)
+        if (closed.get()) return
+        mainFrameRendered = true
+        listener.onVideoFrameRendered(this)
     }
 
     internal fun logTrace(message: String) = trace(message)
@@ -141,6 +149,7 @@ class AirPlaySession(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         mainScreenToken = null
+        mainFrameRendered = false
         clearClusterContent()
         safeClose(socket)
         try {
@@ -771,7 +780,12 @@ class AirPlaySession(
         trace("airplay TEARDOWN raw${request.body.size}Hex=${request.body.toHex()}")
 
         // Restore wheel input before releasing media resources, which may take time to close.
-        if (types == null || STREAM_TYPE_MAIN_SCREEN in types) mainScreenToken = null
+        if (types == null || STREAM_TYPE_MAIN_SCREEN in types) {
+            mainScreenToken = null
+            // The main screen was torn down, so whatever it drew is gone: a later cluster start has
+            // to wait for the next frame instead of trusting the old one.
+            mainFrameRendered = false
+        }
         if (types == null || STREAM_TYPE_ALT_SCREEN in types) clearClusterContent()
         if (types == null) {
             activeStreams.toList().forEach { media.onTeardown(this, it) }
