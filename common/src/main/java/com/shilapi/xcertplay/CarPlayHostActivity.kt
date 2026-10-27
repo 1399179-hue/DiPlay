@@ -1141,6 +1141,13 @@ class CarPlayHostActivity : ComponentActivity() {
         else -> false
     }
 
+    // The cluster stream parameters are prepared before the handshake; the actual window is only
+    // opened once the centre screen has drawn a frame. Starting the cluster earlier made the car's
+    // launcher keep its system bars on that window and pushed the tap that restored focus back into
+    // a CarPlay restart at the wrong size.
+    private fun clusterOutputReady(): Boolean = activeAirPlaySession?.hasRenderedMainFrame == true &&
+        !isDestroyed && !handshakeResetInProgress && !shuttingDown.get()
+
     private fun ensureClusterPresentation() {
         if (VehicleMapSettings.enabled(this) || VehicleMapProjection.owns(controller)) {
             dismissClusterPresentation()
@@ -1150,6 +1157,9 @@ class CarPlayHostActivity : ComponentActivity() {
             dismissClusterPresentation()
             return
         }
+        // The stream parameters are already negotiated; wait for the centre screen to draw before
+        // opening the cluster window, and retry when the next surface or frame arrives.
+        if (!clusterOutputReady()) return
         if (AdbClusterRouter.enabled(this)) {
             ClusterActivityOutput.bind(this, taskId) { onClusterSurface(it) }
             ClusterActivityOutput.setStreamActive(SCREEN_TYPE_ALT in activeScreenStreamTypes)
@@ -4837,6 +4847,9 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     activeAirPlaySession = session
+                    // A new session that has not drawn yet must not keep painting into the surface
+                    // the previous one left behind; the cluster window opens on its first frame.
+                    if (!session.hasRenderedMainFrame) clusterSurface?.let { sink?.clearSurface(SCREEN_TYPE_ALT, it) }
                     CarPlayBackgroundSession.active = true
                     // carlito | RECORD can recover an ended AirPlay session, but it cannot
                     // restart a failed iAP2 control loop. Preserve mandatory transport recovery.
@@ -4858,7 +4871,11 @@ class CarPlayHostActivity : ComponentActivity() {
             override fun onVideoFrameRendered(session: AirPlaySession) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration || activeAirPlaySession !== session || shuttingDown.get()) return@runOnUiThread
-                    if (!startupRetryBudget.firstFrame(session, android.os.SystemClock.elapsedRealtime())) return@runOnUiThread
+                    // The cluster window waits for this frame, so the first one has to open it.
+                    val firstFrame = startupRetryBudget.firstFrame(session, android.os.SystemClock.elapsedRealtime())
+                    if (firstFrame) appendLog("Main video first frame rendered; cluster output may start")
+                    ensureClusterPresentation()
+                    if (!firstFrame) return@runOnUiThread
                     mainHandler.postDelayed({
                         if (controllerGeneration == restartGeneration && activeAirPlaySession === session &&
                             !shuttingDown.get() && CarPlayBackgroundSession.isOwner(this@CarPlayHostActivity) &&
