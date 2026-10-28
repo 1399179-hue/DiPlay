@@ -16,16 +16,17 @@ import java.util.Collections
 internal class ManualHotspotInterfaces(
     private val context: Context,
     private val onDiagnostic: (String) -> Unit = {},
+    private val configuredInterface: String? = null,
 ) : Closeable {
     private val connectivity = context.getSystemService(ConnectivityManager::class.java)
     private val publicTethering = if (Build.VERSION.SDK_INT >= 36) PublicTethering(context) else null
     // carlito | One reader belongs to this manager; closing it never changes the factory AP.
     private val vendor = EcarxHotspotReader(context, onDiagnostic)
     private var lastLegacyDiagnostic: String? = null
+    private var lastOwnershipDiagnostic: String? = null
 
     fun sample(): HotspotNetworkSnapshot {
         val vendorState = vendor.snapshot()
-        val ap = publicTethering?.interfaces ?: legacyApInterfaces()
         val before = runCatching { connectivity?.activeNetwork }
         val upstreams = runCatching {
             checkNotNull(connectivity)
@@ -49,13 +50,79 @@ internal class ManualHotspotInterfaces(
             }
         }.getOrDefault(emptyList())
         val after = runCatching { connectivity?.activeNetwork }
+        val apEnabled = CarHotspotStatus.isEnabled(context)
+        val ap = apInterfaces(
+            observed = publicTethering?.interfaces ?: legacyApInterfaces(),
+            interfaces = interfaces,
+            apEnabled = apEnabled,
+            upstreams = upstreams,
+            defaultInterface = defaultName,
+        )
         return HotspotNetworkSnapshot(
             interfaces, ap, upstreams, defaultName,
             consistent = before.isSuccess && after.isSuccess && before.getOrNull() == after.getOrNull(),
             // carlito | Only a verified factory route may override Android AP off.
-            apEnabled = CarHotspotStatus.androidEnabled(context),
+            apEnabled = apEnabled,
             vendorHostAddresses = vendorState.routedHosts,
         )
+    }
+
+    /**
+     * Some head units run the car hotspot on a Wi-Fi chip the platform never reports as a tether
+     * interface, and hand the clients to the Android side over a VLAN of the wired interface, such
+     * as `eth0.3` on a QUALCOMM CS11 unit (#573). Tethering detection only ever names Wi-Fi
+     * interfaces, so that VLAN never enters the AP set and readiness rejects it as
+     * `not_platform_ap`. A configured interface, or a discovered non-wireless interface that carries
+     * a hotspot address, is added to the set instead.
+     */
+    private fun apInterfaces(
+        observed: Set<String>?,
+        interfaces: List<HotspotInterfaceSnapshot>,
+        apEnabled: Boolean?,
+        upstreams: Set<String>?,
+        defaultInterface: String?,
+    ): Set<String>? {
+        val explicit = configuredInterface?.trim()?.takeIf { it.isNotEmpty() }
+        val owned = when {
+            // An explicit choice is honoured even when the platform already lists a Wi-Fi AP.
+            explicit != null -> (observed ?: emptySet()) + explicit
+            // Only when the hotspot is reported on and no tethered Wi-Fi interface exists. An
+            // unobservable set stays unobservable, so the fallback evidence keeps working.
+            apEnabled == true && observed?.isEmpty() == true -> {
+                val discovered = hotspotCarrierCandidates(interfaces, upstreams.orEmpty(), defaultInterface)
+                if (discovered.isEmpty()) observed else discovered
+            }
+            else -> observed
+        }
+        val diagnostic = "manual hotspot interface override=${explicit ?: "none"} " +
+            "observedAp=${observed ?: "unobservable"} selectedAp=$owned"
+        if (diagnostic != lastOwnershipDiagnostic) {
+            lastOwnershipDiagnostic = diagnostic
+            onDiagnostic(diagnostic)
+        }
+        return owned
+    }
+
+    /**
+     * Interfaces that plausibly carry a hotspot the platform will not name: up, not wireless, not
+     * an upstream, not the default route, and holding an address a hotspot would publish. The
+     * reference vendor interface wins over an inferred one, so the pick stays deterministic on
+     * firmware where several VLANs share one address.
+     */
+    private fun hotspotCarrierCandidates(
+        interfaces: List<HotspotInterfaceSnapshot>,
+        upstreams: Set<String>,
+        defaultInterface: String?,
+    ): Set<String> {
+        val eligible = interfaces.filter { iface ->
+            iface.up && iface.index > 0 && !iface.wireless &&
+                iface.name !in upstreams && iface.name != defaultInterface &&
+                iface.name !in EXCLUDED_INTERFACES && !mobileDataInterfaceName(iface.name) &&
+                iface.addresses.any(::publishesHotspotAddress)
+        }.map { it.name }
+        if (eligible.isEmpty()) return emptySet()
+        if (DEFAULT_CAR_HOTSPOT_INTERFACE in eligible) return setOf(DEFAULT_CAR_HOTSPOT_INTERFACE)
+        return eligible.toSet()
     }
 
     fun vendorDiagnosticSnapshot(): String = vendor.diagnosticSnapshot()
@@ -85,6 +152,14 @@ internal class ManualHotspotInterfaces(
         vendor.close()
     }
 
+    companion object {
+        /** Interface that carried the car hotspot on the reference QUALCOMM CS11 unit (#573). */
+        const val DEFAULT_CAR_HOTSPOT_INTERFACE = "eth0.3"
+
+        // Virtual interfaces that carry vendor plumbing, not the hotspot an iPhone joins.
+        private val EXCLUDED_INTERFACES = setOf("dummy0", "sit0", "bond0", "ip6tnl0", "tunl0", "rmnet0")
+    }
+
     @RequiresApi(36)
     private class PublicTethering(context: Context) : Closeable {
         @Volatile var interfaces: Set<String>? = null
@@ -106,6 +181,14 @@ internal class ManualHotspotInterfaces(
     }
 }
 
+/** An address a hotspot publishes to its clients: a usable IPv4, or a scoped link-local IPv6. */
+internal fun publishesHotspotAddress(address: java.net.InetAddress): Boolean = when (address) {
+    is java.net.Inet4Address -> !address.isLoopbackAddress && !address.isAnyLocalAddress &&
+        !address.isLinkLocalAddress && !address.isMulticastAddress
+    is java.net.Inet6Address -> address.isLinkLocalAddress
+    else -> false
+}
+
 internal fun legacyHotspotInterfaces(tethered: List<String>, wifiRegexes: List<String>): Set<String>? {
     if (wifiRegexes.isEmpty()) return null
     val patterns = wifiRegexes.map(::Regex)
@@ -117,3 +200,11 @@ internal fun legacyHotspotInterfaces(tethered: List<String>, wifiRegexes: List<S
 internal fun wirelessInterfaceName(name: String): Boolean =
     name.startsWith("wlan") || name.startsWith("swlan") || name.startsWith("ap") ||
         name.contains("softap", ignoreCase = true) || name.startsWith("wifi") || name.startsWith("p2p")
+
+/**
+ * The modem's mobile-data interfaces: Qualcomm's rmnet… (rmnet_data0 to rmnet_data8, rmnet_ipa0 and r_rmnet_data… on
+ * BYD units, #921) and MediaTek's ccmni…. Several of them hold an address while the car is online, and none carries
+ * the hotspot an iPhone joins.
+ */
+internal fun mobileDataInterfaceName(name: String): Boolean =
+    name.startsWith("rmnet") || name.startsWith("r_rmnet") || name.startsWith("ccmni")
