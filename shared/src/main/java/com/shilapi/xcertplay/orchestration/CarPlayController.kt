@@ -2026,7 +2026,8 @@ class CarPlayController(
         val device = iphoneHost.discover().firstOrNull()
         if (device == null) {
             reportIphoneMissing()
-            val now = SystemClock.elapsedRealtime()
+            // nanoTime is monotonic like elapsedRealtime; shared module keeps no android.os imports.
+            val now = System.nanoTime() / 1_000_000
             val waitStarted = iphoneWaitStartedAt ?: now.also { iphoneWaitStartedAt = it }
             onStatus(
                 if (now - waitStarted < IPHONE_NOT_LISTED_AFTER_MILLIS) CarPlayStatus.WaitingForIphone
