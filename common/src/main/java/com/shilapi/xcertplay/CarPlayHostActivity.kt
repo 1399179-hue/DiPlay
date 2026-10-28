@@ -6016,8 +6016,8 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun connectionInstructions(status: CarPlayStatus?): String = getString(when {
         status is CarPlayStatus.IphoneNotListed ->
-            if (status.nonHubDeviceListed) R.string.connection_help_usb_device_not_iphone
-            else R.string.connection_help_no_usb_device
+            if (status.nonHubDeviceListed) R.string.car_sees_usb_device_not_iphone
+            else R.string.car_sees_no_usb_device
         wirelessEnabled -> R.string.keep_your_iphone_nearby_with_bluetooth_and_wi_fi_on_allow
         else -> R.string.use_a_usb_data_cable_and_unlock_your_iphone_allow_trust_an
     })

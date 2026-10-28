@@ -3185,6 +3185,8 @@ class CarPlayController(
             "STEP usb/discover: searching for an iPhone USB device"
         CarPlayStatus.WaitingForIphone ->
             "STEP usb/wait: iPhone USB device not present; polling"
+        is CarPlayStatus.IphoneNotListed ->
+            "STEP usb/wait: iPhone not listed by Android${if (nonHubDeviceListed) "; a non-iPhone USB device is listed" else ""}"
         CarPlayStatus.RequestingIphonePermission ->
             "STEP usb/permission: requesting USB access to the iPhone"
         CarPlayStatus.WaitingForReenumeration ->
