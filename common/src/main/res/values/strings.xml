@@ -977,4 +977,29 @@
     <string name="settings_launcher_bubble_unlocked">Place unlocked</string>
     <string name="settings_launcher_bubble_hold_to_lock">Hold to lock</string>
     <string name="settings_launcher_bubble_hold_to_unlock">Hold to unlock</string>
+    <!-- Upstream connection-failure guidance: a suggested action per failure, never a diagnosis. -->
+    <string name="connection_help_reset_wifi">An old Wi-Fi Direct group may block this connection. Select Reset CarPlay Wi-Fi below, then connect again.</string>
+    <string name="connection_help_chosen_iphone_not_paired">Pair the iPhone with the car\'s Bluetooth again, or return to DiPlay and tap Choose iPhone to pick another one. Then retry.</string>
+    <string name="connection_help_choose_iphone">Several devices are paired with the car. Return to DiPlay, tap Choose iPhone and pick yours, then retry.</string>
+    <string name="connection_help_wifi_direct_channel">Set Preferred Wi-Fi Direct channel to Auto in Connection setup, then retry.</string>
+    <string name="connection_help_car_hotspot_off">Turn on the car hotspot in the car settings, then retry.</string>
+    <string name="connection_help_car_hotspot_details_differ">In Connection setup, tap Edit saved hotspot and copy the name and password from the car\'s hotspot settings, then retry.</string>
+    <string name="connection_help_hotspot_interface_not_found">In Connection setup, tap Edit saved hotspot, clear Hotspot interface (optional), then retry.</string>
+    <string name="connection_help_hotspot">Check that the car hotspot is on and its name and password match DiPlay settings. If available, use 5 GHz, then retry.</string>
+    <string name="connection_help_bluetooth_unusable">This head unit cannot send Bluetooth data to the iPhone. Wireless CarPlay cannot work here. Use a USB data cable.</string>
+    <string name="connection_help_wifi_direct_beside_hotspot">Turn the car hotspot off and retry, or choose Built-in car hotspot in Connection setup and save its name and password.</string>
+    <string name="connection_help_existing_wifi">Make sure the head unit and the iPhone are on the same Wi-Fi network and its name and password match DiPlay settings, then retry.</string>
+    <string name="connection_help_wifi_direct">Keep the head unit\'s Wi-Fi and Bluetooth on and the iPhone unlocked nearby, then retry. If it keeps failing, forget the car on the iPhone under Settings → General → CarPlay and connect again.</string>
+    <string name="connection_help_iphone_wifi">Keep Wi-Fi and Bluetooth on. On the iPhone, join the car hotspot and enable Auto-Join, then retry. Save a diagnostic report if it still fails.</string>
+    <string name="connection_help_general">Retry the connection. If it fails again, return to DiPlay and save a report under Settings → Diagnostics.</string>
+    <string name="connection_help_permissions">Allow the requested USB, Nearby devices or Location permissions for DiPlay on the head unit, then retry.</string>
+    <string name="connection_help_usb">Use a USB data port and a data-capable cable. Unlock the iPhone, approve Trust and CarPlay, then retry.</string>
+    <string name="chosen_iphone_not_paired">The iPhone chosen in DiPlay is no longer paired with the car</string>
+    <string name="wifi_direct_channel_unavailable">Wi-Fi Direct cannot use the preferred channel</string>
+    <string name="car_hotspot_details_differ">The car hotspot settings differ from those saved in DiPlay</string>
+    <string name="hotspot_interface_not_found">The hotspot interface saved in DiPlay does not exist on this car</string>
+    <string name="car_sees_no_usb_device">The car doesn\'t see any USB device yet</string>
+    <string name="car_sees_usb_device_not_iphone">The car sees a USB device, but not an iPhone</string>
+    <string name="last_connection_attempt">Last connection attempt (%1$s): %2$s</string>    <string name="wifi_direct_refused_beside_hotspot">The car hotspot is on, and Wi-Fi Direct cannot start beside it</string>
+    <string name="connection_help_bluetooth">Unlock the iPhone, enable Bluetooth and Wi-Fi, and pair it with the head unit. Keep it nearby, then retry.</string>
 </resources>
