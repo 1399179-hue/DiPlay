@@ -63,6 +63,9 @@ class CarPlayRuntimeConfig(
     val manualHotspotBand: ManualHotspotBand = ManualHotspotBand.AUTO,
     val manualHotspotChannel: Int = 0,
     val manualHotspotSecurity: ManualHotspotSecurity = ManualHotspotSecurity.WPA2,
+    // Upstream #573: some head units carry the hotspot on a VLAN (eth0.3) the platform never
+    // names as a tether interface; an explicit interface name lets readiness accept it.
+    val manualHotspotInterface: String? = null,
     val wirelessBluetoothDeviceAddress: String? = null,
     val locationReportingEnabled: Boolean = false,
     val wifiP2pPreferredChannel: Int = WifiP2pChannels.AUTO,
