@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.airplay
 
 import java.io.Closeable
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
@@ -42,6 +44,10 @@ class CurrentScreenListenerTest {
     private val config = byteArrayOf(0, 0, 0, 1, 0x67, 0x42)
     private val frame = byteArrayOf(0, 0, 0, 1, 0x65, 0x11)
     private val timedFrame = byteArrayOf(0, 0, 0, 1, 0x41, 0x22)
+
+    /** The engine pins every stream to the control-session peer, so the session's socket must be connected. */
+    private val loopback: InetAddress = InetAddress.getByName("127.0.0.1")
+    private val peerServer: ServerSocket = ServerSocket(0, 1, loopback)
 
     private fun ScreenStream.Listener.deliverAll(codec: VideoCodec = VideoCodec.H265) {
         onCodec(codec)
@@ -157,19 +163,27 @@ class CurrentScreenListenerTest {
         ScreenStream::class.java.getDeclaredField("listener").apply { isAccessible = true }
             .get(screen) as ScreenStream.Listener
 
-    private fun testSession(): AirPlaySession = AirPlaySession(
-        socket = Socket(),
-        config = AirPlayConfig(
-            deviceName = "test",
-            deviceId = "02:00:00:00:00:02",
-            btMac = "02:00:00:00:00:01",
-            sourceVersion = "1.0",
-            main = AirPlayDisplayConfig(widthPixels = 800, heightPixels = 480),
-        ),
-        identity = AirPlayIdentity.generate(),
-        pairings = PairingStore(),
-        mfi = null,
-        listener = object : AirPlaySessionListener {},
-        media = object : AirPlayMediaHandler {},
-    )
+    /**
+     * A session whose socket is actually connected: the engine now pins every stream to the control-session
+     * peer, and an unconnected Socket has no address to pin to.
+     */
+    private fun testSession(): AirPlaySession {
+        val client = Socket()
+        client.connect(java.net.InetSocketAddress(loopback, peerServer.localPort), 1_000)
+        return AirPlaySession(
+            socket = client,
+            config = AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:01",
+                sourceVersion = "1.0",
+                main = AirPlayDisplayConfig(widthPixels = 800, heightPixels = 480),
+            ),
+            identity = AirPlayIdentity.generate(),
+            pairings = PairingStore(),
+            mfi = null,
+            listener = object : AirPlaySessionListener {},
+            media = object : AirPlayMediaHandler {},
+        )
+    }
 }
