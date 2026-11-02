@@ -17,15 +17,27 @@ object BplistCodec {
         val trailer = bytes.size - 32
         val offsetSize = bytes[trailer + 6].toInt() and 0xff
         val refSize = bytes[trailer + 7].toInt() and 0xff
-        val numObjects = readBigEndianLong(bytes, (trailer + 8).toLong(), 8).toInt()
-        val topObject = readBigEndianLong(bytes, (trailer + 16).toLong(), 8).toInt()
+        require(offsetSize in 1..8 && refSize in 1..8) { "bplist: bad offset or reference size" }
+        val declaredObjects = readBigEndianLong(bytes, (trailer + 8).toLong(), 8)
+        val topObject = readBigEndianLong(bytes, (trailer + 16).toLong(), 8)
         val offsetTable = readBigEndianLong(bytes, (trailer + 24).toLong(), 8)
+        // The peer chooses these numbers. Each object is at least one byte of the data, so no count above its length is real.
+        require(trailer >= magic.size && declaredObjects in 1..trailer.toLong() && topObject in 0 until declaredObjects) { "bplist: bad object count" }
+        require(offsetTable in magic.size.toLong()..trailer.toLong() &&
+            offsetTable + declaredObjects * offsetSize.toLong() <= trailer) { "bplist: bad offset table" }
+        val numObjects = declaredObjects.toInt()
 
         val offsets = LongArray(numObjects)
         for (index in offsets.indices) {
-            offsets[index] = readBigEndianLong(bytes, offsetTable + index.toLong() * offsetSize, offsetSize)
+            val offset = readBigEndianLong(bytes, offsetTable + index.toLong() * offsetSize.toLong(), offsetSize)
+            require(offset in magic.size.toLong() until offsetTable) { "bplist: object offset out of range" }
+            offsets[index] = offset
         }
-        return readObject(bytes, offsets, refSize, topObject)
+        // Each object read in a plain tree uses at least one reference byte, so reads rarely exceed the size. The caps
+        // keep the memory of the result bounded however large the body is.
+        val allowance = bytes.size.toLong() * WORK_PER_BYTE + WORK_BASE
+        val limits = Limits(minOf(allowance, MAX_READS), minOf(allowance, MAX_PAYLOAD_BYTES))
+        return readObject(bytes, offsets, refSize, topObject.toInt(), 0, limits)
     }
 
     fun encode(root: Any?): ByteArray {
@@ -109,7 +121,11 @@ object BplistCodec {
         return concatBytes(*parts.toTypedArray())
     }
 
-    private fun readObject(bytes: ByteArray, offsets: LongArray, refSize: Int, index: Int): Any? {
+    private fun readObject(bytes: ByteArray, offsets: LongArray, refSize: Int, index: Int, depth: Int, limits: Limits): Any? {
+        require(depth <= MAX_DEPTH) { "bplist: nested too deep" }
+        limits.reads -= 1
+        require(limits.reads >= 0) { "bplist: expands to more objects than its size allows" }
+        require(index in offsets.indices) { "bplist: reference out of range" }
         var position = offsets[index].toInt()
         val markerByte = bytes[position].toInt() and 0xff
         val type = markerByte ushr 4
@@ -121,9 +137,12 @@ object BplistCodec {
             val sizeMarker = bytes[position].toInt() and 0xff
             position++
             val intBytes = 1 shl (sizeMarker and 0x0f)
-            val count = readBigEndianLong(bytes, position.toLong(), intBytes).toInt()
+            require(intBytes <= 8) { "bplist: count wider than 8 bytes" }
+            val count = readBigEndianLong(bytes, position.toLong(), intBytes)
             position += intBytes
-            return count
+            // A count is a length of what follows it, so it cannot exceed the data that is left.
+            require(count in 0..(bytes.size - position).toLong()) { "bplist: count larger than the data" }
+            return count.toInt()
         }
 
         return when (type) {
@@ -134,6 +153,7 @@ object BplistCodec {
                 else -> throw IllegalArgumentException("bplist: unsupported primitive 0x0$nibble")
             }
             0x1 -> {
+                require(nibble <= 3) { "bplist: integer wider than 8 bytes" }
                 val size = 1 shl nibble
                 readBigEndianLong(bytes, position.toLong(), size)
             }
@@ -151,36 +171,46 @@ object BplistCodec {
             )
             0x4 -> {
                 val count = readCount()
+                charge(limits, count.toLong())
                 bytes.copyOfRange(position, position + count)
             }
             // UID (keyed archives): its integer value.
-            0x8 -> readBigEndianLong(bytes, position.toLong(), nibble + 1)
+            0x8 -> {
+                require(nibble <= 7) { "bplist: uid wider than 8 bytes" }
+                readBigEndianLong(bytes, position.toLong(), nibble + 1)
+            }
             0x5 -> {
                 val count = readCount()
+                charge(limits, count.toLong())
                 String(bytes, position, count, Charsets.US_ASCII)
             }
             0x6 -> {
                 val count = readCount()
+                require(count.toLong() * 2 <= (bytes.size - position).toLong()) { "bplist: string longer than the data" }
+                charge(limits, count.toLong() * 2L)
                 String(bytes, position, count * 2, Charsets.UTF_16BE)
             }
             0xa, 0xc -> {
                 val count = readCount()
-                val array = ArrayList<Any?>(count)
+                require(count.toLong() * refSize.toLong() <= (bytes.size - position).toLong()) { "bplist: array larger than the data" }
+                // Not `count`: a plist that refers to itself would allocate that much at every level before the depth limit.
+                val array = ArrayList<Any?>(minOf(count, INITIAL_CAPACITY))
                 for (i in 0 until count) {
-                    val reference = readBigEndianLong(bytes, position + i.toLong() * refSize, refSize).toInt()
-                    array.add(readObject(bytes, offsets, refSize, reference))
+                    val reference = readReference(bytes, position + i.toLong() * refSize.toLong(), refSize)
+                    array.add(readObject(bytes, offsets, refSize, reference, depth + 1, limits))
                 }
                 array
             }
             0xd -> {
                 val count = readCount()
-                val dict = LinkedHashMap<String, Any?>(count)
+                require(count.toLong() * 2L * refSize.toLong() <= (bytes.size - position).toLong()) { "bplist: dictionary larger than the data" }
+                val dict = LinkedHashMap<String, Any?>(minOf(count, INITIAL_CAPACITY))
                 for (i in 0 until count) {
-                    val keyReference = readBigEndianLong(bytes, position + i.toLong() * refSize, refSize).toInt()
-                    val valueReference =
-                        readBigEndianLong(bytes, position + (count + i).toLong() * refSize, refSize).toInt()
-                    dict[readObject(bytes, offsets, refSize, keyReference).toString()] =
-                        readObject(bytes, offsets, refSize, valueReference)
+                    val keyReference = readReference(bytes, position + i.toLong() * refSize.toLong(), refSize)
+                    val valueReference = readReference(bytes, position + (count + i).toLong() * refSize.toLong(), refSize)
+                    val key = readObject(bytes, offsets, refSize, keyReference, depth + 1, limits)
+                    require(key is String) { "bplist: dictionary key is not a string" }
+                    dict[key] = readObject(bytes, offsets, refSize, valueReference, depth + 1, limits)
                 }
                 dict
             }
@@ -267,6 +297,7 @@ object BplistCodec {
     }
 
     private fun readBigEndianLong(bytes: ByteArray, offset: Long, size: Int): Long {
+        require(offset >= 0 && offset + size <= bytes.size) { "bplist: read past the end of the data" }
         var value = 0L
         var base = offset.toInt()
         for (index in 0 until size) {
@@ -275,9 +306,38 @@ object BplistCodec {
         return value
     }
 
+    private fun readReference(bytes: ByteArray, offset: Long, refSize: Int): Int =
+        readBigEndianLong(bytes, offset, refSize).let { reference ->
+            require(reference in 0..Int.MAX_VALUE.toLong()) { "bplist: reference out of range" }
+            reference.toInt()
+        }
+
+    /** Counts the bytes one object produces, so a small body cannot expand into an unbounded result. */
+    private fun charge(limits: Limits, bytes: Long) {
+        if (bytes <= SMALL_PAYLOAD_BYTES) return
+        limits.payload -= bytes
+        require(limits.payload >= 0) { "bplist: expands to more payload than its size allows" }
+    }
+
+    /** Mutable budget for one decode call; both fields only ever go down. */
+    private class Limits(var reads: Long, var payload: Long)
+
     private sealed class Node
     private class Leaf(val body: ByteArray) : Node()
     private class Container(val head: ByteArray, val refs: IntArray) : Node()
 
     private const val APPLE_EPOCH_SECONDS = 978_307_200.0
+
+    /** A real plist nests a handful of levels; this stops a reference cycle from recursing forever. */
+    private const val MAX_DEPTH = 32
+
+    /** See the note in decode(): the read budget is a multiple of the body size. */
+    private const val WORK_PER_BYTE = 4L
+    private const val WORK_BASE = 1024L
+    private const val MAX_READS = 100_000L
+    private const val MAX_PAYLOAD_BYTES = 4L * 1024 * 1024
+    private const val SMALL_PAYLOAD_BYTES = 64L
+
+    /** Pre-sized to the smaller of the declared count and this, rather than to a peer-chosen count. */
+    private const val INITIAL_CAPACITY = 64
 }

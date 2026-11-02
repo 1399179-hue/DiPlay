@@ -9,10 +9,9 @@ import android.util.Log
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayInfoPlist
-import java.io.BufferedReader
 import java.io.Closeable
 import java.io.IOException
-import java.io.InputStreamReader
+import java.io.InputStream
 import java.net.Inet4Address
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -591,10 +590,7 @@ class CarPlayBonjour(
             output.flush()
             stage = CarPlayBonjourEvent.ProbeProgress.Stage.REQUEST_SENT
             emit(CarPlayBonjourEvent.ProbeProgress(CarPlayBonjourEvent.ProbeProgress.Stage.REQUEST_SENT, attempt, address is Inet6Address))
-            val reader = BufferedReader(
-                InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII),
-            )
-            return reader.readLine()
+            return readStatusLine(socket.getInputStream())
                 ?: throw IOException("AirPlay control probe returned no status line")
         } catch (error: IOException) {
             if (!closed) emit(CarPlayBonjourEvent.ProbeFailed(stage, attempt, error))
@@ -664,5 +660,27 @@ class CarPlayBonjour(
         const val READ_TIMEOUT_MILLIS = 3_000
         const val JOIN_TIMEOUT_MILLIS = 2_000L
         const val FAILURE_NONE = -1
+    }
+}
+
+/**
+ * Test seam for the probe reply reader. [readStatusLine] runs on the Bonjour worker and needs a live socket, so the
+ * byte-level loop is exposed here to be driven from a plain array without a network.
+ */
+internal object CarPlayBonjourProbe {
+    fun readLineForTest(bytes: ByteArray): String? = readStatusLine(java.io.ByteArrayInputStream(bytes))
+}
+
+/** The byte-level loop behind both the probe and [CarPlayBonjourProbe]; capped so a stalled peer cannot exhaust memory. */
+internal fun readStatusLine(input: InputStream): String? {
+    val line = StringBuilder()
+    while (true) {
+        val byte = input.read()
+        if (byte == -1) return if (line.isEmpty()) null else line.toString()
+        if (byte == '\n'.code) return line.toString()
+        if (byte != '\r'.code) {
+            if (line.length >= 8 * 1024) throw IOException("AirPlay control probe status line over ${8 * 1024} bytes")
+            line.append(byte.toChar())
+        }
     }
 }

@@ -7,13 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AirPlayIapTunnelStreamTest {
+    private val peer = InetAddress.getByName("127.0.0.1")
+
     @Test
     fun inputConnectionCloseKeepsEventChannelAvailableForOutboundIap() {
         val sent = mutableListOf<ByteArray>()
         val session = testSession()
         val bridge = AirPlayIapTunnelStream(
             session = session,
-            tunnel = IapTunnel(ByteArray(32)),
+            tunnel = IapTunnel(ByteArray(32), peer),
             sendCommand = { data, _ ->
                 sent += data.copyOf()
                 true
@@ -41,6 +43,7 @@ class AirPlayIapTunnelStreamTest {
             session = testSession(),
             tunnel = IapTunnel(
                 readKey = ByteArray(32),
+                expectedPeer = peer,
                 bindAddress = InetAddress.getByName("::"),
             ),
             sendCommand = { _, _ -> true },
