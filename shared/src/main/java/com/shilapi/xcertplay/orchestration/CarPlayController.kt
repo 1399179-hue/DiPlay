@@ -109,10 +109,8 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -232,9 +230,6 @@ class CarPlayController(
         )
     }
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
-    // Owns the wired bring-up watchdog only: the control loop blocks the main executor.
-    private val wiredStartTimer: ScheduledExecutorService =
-        Executors.newSingleThreadScheduledExecutor()
     private val touchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val tunnelExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -770,7 +765,6 @@ class CarPlayController(
         permissionPollGeneration += 1
         touchExecutor.shutdownNow()
         tunnelExecutor.shutdownNow()
-        wiredStartTimer.shutdownNow()
         val service = vpnService
         unbindVpn()
         Thread(
@@ -2364,15 +2358,11 @@ class CarPlayController(
             debugLog("wired iAP2 CSM channel opened")
 
             val ncmHostMac = ncm.hostMac ?: config.hostMac
-            // Stays null until attachVpn() has brought the AirPlay network up.
-            var linkOpenedAtNanos: Long? = null
             debugLog("ncm using hostMac=${ncmHostMac.macString()}")
             if (!attachVpn(ncm, ncmHostMac)) {
                 throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
             }
             ncmOwnedLocally = false
-            // The AirPlay network the iPhone dials is up from here; WiredStartAgain counts from it.
-            linkOpenedAtNanos = System.nanoTime()
             debugLog("wired NCM/VPN AirPlay transport attached")
             if (closed) {
                 vpnService?.detach()
@@ -2394,63 +2384,16 @@ class CarPlayController(
                     "location=${config.identification.locationInformationEnabled} " +
                     "vehicleStatus=${config.identification.vehicleStatusEnabled}",
             )
-            val startSentAtNanos = AtomicLong(0L)
-            val watchdog = WiredStartWatchdog(
-                schedule = ::scheduleWiredStartTimeout,
-                onTimeout = {
-                    debugLog("wired bring-up timed out with no AirPlay session; closing control")
-                    csm.close()
-                },
-                // WiredStartAgain may still be about to ask again; keep the limit open for that.
-                secondRequestCanStillGoOut = {
-                    WiredStartAgain.decide(
-                        nowNanos = System.nanoTime(),
-                        startSentAtNanos = startSentAtNanos.get(),
-                        linkOpenedAtNanos = linkOpenedAtNanos,
-                        sessionActive = activeSession != null,
-                        connectionAttemptSinceLinkOpened = true,
-                    ) != Iap2WiredControlClient.StartAgain.DONE
-                },
-                onHold = {
-                    debugLog("wired bring-up limit held for the second carplay-start-session")
-                },
+            val result = Iap2WiredControlClient(csm, Iap2MfiAuthenticationClient(mfi)).run(
+                identification = config.identification,
+                endpoint = endpoint,
+                availableCurrentMilliAmps = config.availableCurrentMilliAmps,
+                timeoutMillis = controlLoopTimeoutMillis(),
+                locationProvider = locationProvider,
+                vehicleStatusProvider = vehicleStatusProvider,
+                onIncoming = ::onRouteFrame,
+                onProgress = { message -> debugLog("wired $message") },
             )
-            val result = try {
-                Iap2WiredControlClient(csm, Iap2MfiAuthenticationClient(mfi)).run(
-                    identification = config.identification,
-                    endpoint = endpoint,
-                    availableCurrentMilliAmps = config.availableCurrentMilliAmps,
-                    timeoutMillis = controlLoopTimeoutMillis(),
-                    locationProvider = locationProvider,
-                    vehicleStatusProvider = vehicleStatusProvider,
-                    onIncoming = ::onRouteFrame,
-                    // The iPhone only tries for about 7 s after the first request, so the
-                    // controller has to know when that request went out; see WiredStartAgain.
-                    onSessionStartSent = {
-                        startSentAtNanos.set(System.nanoTime())
-                        watchdog.startSessionSent()
-                    },
-                    onSessionStartSentAgain = {
-                        startSentAtNanos.set(System.nanoTime())
-                        watchdog.startSessionSentAgain()
-                    },
-                    startSessionAgain = {
-                        // The iPhone only tries for about 7 s after the request, so a link that
-                        // opened later than that sees no attempt at all (#889, #610).
-                        WiredStartAgain.decide(
-                            nowNanos = System.nanoTime(),
-                            startSentAtNanos = startSentAtNanos.get(),
-                            linkOpenedAtNanos = linkOpenedAtNanos,
-                            // A live session means the iPhone answered; nothing to ask again.
-                            sessionActive = activeSession != null,
-                            connectionAttemptSinceLinkOpened = true,
-                        )
-                    },
-                    onProgress = { message -> debugLog("wired $message") },
-                )
-            } finally {
-                watchdog.terminate()
-            }
             onStatus(
                 when (result.terminal) {
                     Iap2WiredControlTerminal.TIMED_OUT -> CarPlayStatus.ControlEnded
@@ -2981,21 +2924,6 @@ class CarPlayController(
         // Identification/authentication remain bounded. The bootstrap loop can extend this
         // deadline only once this generation has actually rendered a CarPlay frame.
         else -> CONTROL_LOOP_TIMEOUT_MILLIS
-    }
-
-    /**
-     * Runs [action] after [delayMillis] on a thread of its own.
-     *
-     * The wired control loop blocks the executor thread for the whole bring-up, so the timer
-     * cannot share it: a watchdog scheduled there would never fire while the loop is waiting.
-     */
-    private fun scheduleWiredStartTimeout(delayMillis: Long, action: () -> Unit): () -> Unit {
-        val future = wiredStartTimer.schedule(
-            { runCatching(action).onFailure { debugLog("wired watchdog failed: ${it.message}") } },
-            delayMillis,
-            TimeUnit.MILLISECONDS,
-        )
-        return { future.cancel(false) }
     }
 
     private fun attachVpn(ncm: NcmUsbBridge, hostMac: ByteArray): Boolean {
