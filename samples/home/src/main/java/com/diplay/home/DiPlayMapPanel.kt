@@ -80,7 +80,10 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
 
     fun start() {
         val intent = Intent(ACTION)
-        val info = context.packageManager.queryIntentServices(intent, 0).firstOrNull()?.serviceInfo
+        // Any app can declare this action. Binding the first answer would hand the SurfaceView host token
+        // to whatever installed last, so only DiPlay packages are trusted.
+        val info = context.packageManager.queryIntentServices(intent, 0)
+            .firstOrNull { it.serviceInfo.packageName in DIPLAY_PACKAGES }?.serviceInfo
         diPlayPackage = info?.packageName
         if (info == null) {
             show("DiPlay is not installed")
@@ -165,6 +168,7 @@ class DiPlayMapPanel(context: Context) : FrameLayout(context) {
 
     private companion object {
         const val CARPLAY_ACTIVITY = "com.shilapi.xcertplay.CarPlayHostActivity"
+        val DIPLAY_PACKAGES = setOf("com.shihab.diplay", "com.shihab.diplay.hudtest", "com.shilapi.xcertplay")
         // DiPlay's map protocol.
         const val ACTION = "com.shihab.diplay.action.EMBED_MAP"
         const val MSG_ATTACH = 1

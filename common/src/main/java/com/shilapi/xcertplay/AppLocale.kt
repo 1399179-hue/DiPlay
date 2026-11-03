@@ -21,9 +21,13 @@ object AppLocale {
     const val RUSSIAN = "ru"
     const val SPANISH = "es"
     const val UKRAINIAN = "uk"
+    const val KOREAN = "ko"
+    const val TURKISH = "tr"
 
     /** Every value that was ever persisted, so an old choice still resolves after an update. */
-    val ALL = listOf(SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN)
+    val ALL = listOf(
+        SYSTEM, ENGLISH, SIMPLIFIED_CHINESE, TRADITIONAL_CHINESE, ARABIC, RUSSIAN, SPANISH, UKRAINIAN, KOREAN, TURKISH,
+    )
 
     /**
      * Languages LYNK&CO actually ships: English and Simplified Chinese. The other locales only keep
@@ -147,6 +151,8 @@ object AppLocale {
         RUSSIAN -> "Русский"
         SPANISH -> "Español"
         UKRAINIAN -> "Українська"
+        KOREAN -> "한국어"
+        TURKISH -> "Türkçe"
         else -> language
     }
 
@@ -158,6 +164,8 @@ object AppLocale {
         RUSSIAN -> Locale("ru")
         SPANISH -> Locale("es")
         UKRAINIAN -> Locale("uk")
+        KOREAN -> Locale.KOREAN
+        TURKISH -> Locale("tr")
         else -> null
     }
 }
