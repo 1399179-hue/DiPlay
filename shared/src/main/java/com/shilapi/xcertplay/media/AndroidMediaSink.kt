@@ -1709,7 +1709,12 @@ private class AudioRenderer(
     private val echoReference: EchoReference? = null,
     voiceFilter: Boolean = false,
 ) : Closeable {
-    private data class AudioPacket(val rtp: ByteArray, val sample: Int)
+    /**
+     * [arrivedNs] is when the packet entered the queue: a write that finds the track full blocks
+     * while more audio arrives, and the clock trim has to count that audio from its own arrival
+     * rather than from the sample time (#1074).
+     */
+    private data class AudioPacket(val rtp: ByteArray, val sample: Int, val arrivedNs: Long)
 
     private val pcmChannels = if (format.channels >= 2) 2 else 1
     private val voiceFilter = if (voiceFilter && format.sampleRate > 0) VoiceFilter(format.sampleRate, pcmChannels) else null
@@ -1785,6 +1790,13 @@ private class AudioRenderer(
     private var rebufferRecoverReportCount = 0
     private var queueFullReportCount = 0
     private var diagnosticStage = "starting"
+    // The clock trim's level says nothing around a dropped packet: the queue jumps. Remember the
+    // count at the last trim so the target measurement can start over when it changes.
+    private var droppedAtLastTrim = -1
+    private var lastInputDropped = 0
+    // Where the track's head was when playback started. While it has not moved yet the drain
+    // estimate is meaningless, so the trim only measures its target from real playing time.
+    private var headAtPlaybackStart = 0
     private var lastDecoderOutputMetadata: String? = null
     private var decoderOutputReports = 0
     private val thread = Thread(::run, "carplay-audio").apply { isDaemon = true }
@@ -1819,30 +1831,29 @@ private class AudioRenderer(
                         "packetsDiscarded=$removed remaining=${queue.size}")
                 }
             }
-        }
-        if (!started) return
-        val packet = AudioPacket(rtp, sample)
-        if (!queue.offer(packet)) {
-            // The queue only fills when the play-out clock runs slower than the delivery rate, and
-            // the clock trim absorbs the steady part. Dropping the NEWEST packet broke the stream
-            // forward at the moment it was heard; dropping the OLDEST instead takes one small
-            // backwards jump at once and keeps every later packet in sequence, so the glitch is
-            // a single soft tick instead of a repeated forward tear.
-            queue.poll()
-            packetsDropped.incrementAndGet()
-            // Dropping the oldest packet is an audible jump forward in the waveform: fade the next
-            // buffer in so it lands as a soft step instead of a click. Deliberate skip: no padding.
-            fadeApplied = false
-            lastPlayedRtpSample = -1
-            if (!droppedPacketsLogged) {
-                droppedPacketsLogged = true
-                Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
-                if (queueFullReportCount < MAX_AUDIO_EVENT_REPORTS) {
-                    queueFullReportCount++
-                    report("Audio: queue full audioType=${format.audioType} count=$queueFullReportCount")
+            val packet = AudioPacket(rtp, sample, now)
+            if (!queue.offer(packet)) {
+                // The queue only fills when the play-out clock runs slower than the delivery rate,
+                // and the clock trim absorbs the steady part. Dropping the NEWEST packet broke the
+                // stream forward at the moment it was heard; dropping the OLDEST instead takes one
+                // small backwards jump at once and keeps every later packet in sequence, so the
+                // glitch is a single soft tick instead of a repeated forward tear.
+                queue.poll()
+                packetsDropped.incrementAndGet()
+                // Dropping the oldest packet is an audible jump forward in the waveform: fade the
+                // next buffer in so it lands as a soft step instead of a click. Deliberate skip.
+                fadeApplied = false
+                lastPlayedRtpSample = -1
+                if (!droppedPacketsLogged) {
+                    droppedPacketsLogged = true
+                    Log.w(TAG, "audio queue full; dropping the oldest packet to bound latency")
+                    if (queueFullReportCount < MAX_AUDIO_EVENT_REPORTS) {
+                        queueFullReportCount++
+                        report("Audio: queue full audioType=${format.audioType} count=$queueFullReportCount")
+                    }
                 }
+                queue.offer(packet)
             }
-            queue.offer(packet)
         }
     }
 
@@ -2029,8 +2040,15 @@ private class AudioRenderer(
         val capacityBytes = built.bufferSizeInFrames * frameBytes
         startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
         // Only music plays long enough for the clocks to drift apart; calls keep their echo reference exact.
+        // The start threshold is not the level music holds once it plays: buffered music is fed a
+        // second ahead of real time and realtime music arrives in bursts (#1031/#1068), so the
+        // controller measures what the queue actually settles at.
         clockTrim = if (mappedChannel == AudioChannel.MEDIA) {
-            MediaClockTrim(format.sampleRate, (startThresholdBytes / frameBytes).toLong())
+            MediaClockTrim(
+                sampleRate = format.sampleRate,
+                targetFrames = (startThresholdBytes / frameBytes).toLong(),
+                measuresTarget = true,
+            )
         } else {
             null
         }
@@ -2589,6 +2607,10 @@ private class AudioRenderer(
         underrunsAtPlaybackStart = track.underrunCount
         track.play()
         playbackStarted = true
+        // The head counts from wherever the track is now, and the level music settles at has to be
+        // measured again: the start threshold was only a guess at it (#1031/#1068).
+        headAtPlaybackStart = track.playbackHeadPosition
+        clockTrim?.measureAgain()
         // A rebuffer restarts mid-waveform: without a fade the step out of silence is a click.
         if (rebufferCount > 0) fadeApplied = false
         reportNavigationPlayback(track)
@@ -2635,8 +2657,17 @@ private class AudioRenderer(
             ?: 0L
         val compressedPcmFrames = compressedRtpFrames * format.sampleRate /
             format.rtpClockRate.coerceAtLeast(1)
-        trim.sample(bufferProgress.queuedBytes(track.playbackHeadPosition) / frameBytes,
-            now, compressedPcmFrames)
+        // A dropped packet leaves a hole in the queue: the level seen around it says nothing about
+        // the clocks, so the target measurement starts over.
+        val dropped = packetsDropped.get() + lastInputDropped
+        if (dropped != droppedAtLastTrim) {
+            droppedAtLastTrim = dropped
+            trim.measureAgain()
+        }
+        val head = track.playbackHeadPosition
+        trim.sample(bufferProgress.queuedBytes(head) / frameBytes, now, compressedPcmFrames,
+            headMoving = head != headAtPlaybackStart,
+            arrivedFrameNs = queuedFrameNsSince(trim.lastSampleNs, now))
         val rate = trim.rateDue(now) ?: return
         val result = runCatching { track.setPlaybackRate(rate) }.getOrDefault(AudioTrack.ERROR)
         if (result != AudioTrack.SUCCESS) {
@@ -2644,6 +2675,32 @@ private class AudioRenderer(
             clockTrim = null
             report("Audio: clock trim off audioType=${format.audioType} rate=$rate result=$result")
         }
+    }
+
+    /**
+     * For the packets queued since [sinceNs], the frames each adds to the queue times how long it
+     * has waited.
+     *
+     * A write that finds the track full blocks while more audio arrives. Accounting that audio from
+     * the sample time instead of its own arrival made a full track read up to 300 ms low, and the
+     * trim wandered for minutes afterwards (#1074).
+     */
+    private fun queuedFrameNsSince(sinceNs: Long, nowNs: Long): Double {
+        val clockRate = format.rtpClockRate.coerceAtLeast(1)
+        var frameNs = 0.0
+        var previousSample: Int? = null
+        for (packet in queue) {
+            val previous = previousSample
+            previousSample = packet.sample
+            if (previous == null || packet.arrivedNs <= sinceNs) continue
+            // As in MediaPacketLagGuard.pendingFrames, a packet adds the RTP time since the one
+            // before it, and a jump of more than a second is the iPhone restarting its timestamps,
+            // not audio.
+            val rtpFrames = (packet.sample.toLong() - previous) and 0xffff_ffffL
+            if (rtpFrames > clockRate) continue
+            frameNs += rtpFrames.toDouble() * format.sampleRate / clockRate * (nowNs - packet.arrivedNs)
+        }
+        return frameNs
     }
 
     private fun maintainPlaybackBuffer() {
@@ -2693,13 +2750,17 @@ private class AudioRenderer(
         // "PHONE " marks the iPhone's own log lines, which the report drops, and it dropped every
         // call's playback line with it (#647).
         val channelName = if (mappedChannel == AudioChannel.PHONE) "CALL" else mappedChannel?.name
+        // This window's decoder drops, so the clock trim sees the total across the resets. The
+        // stats line resets packetsDropped to keep its "dropped=" figure per-window.
+        val droppedThisWindow = packetsDropped.getAndSet(0)
+        lastInputDropped += droppedThisWindow
         val line = "audio stats audioType=${format.audioType} channel=$channelName " +
             "routeType=${currentTrack?.routedDevice?.type ?: -1} routeDevice=${currentTrack?.routedDevice?.id ?: -1} codec=${format.codec} " +
             "trackState=${currentTrack?.state ?: -1} playState=${currentTrack?.playState ?: -1} " +
             "sampleRate=${currentTrack?.sampleRate ?: format.sampleRate} " +
             "trackBufferFrames=${currentTrack?.bufferSizeInFrames ?: -1} " +
             "rx=${packetsReceived.getAndSet(0)} " +
-            "dropped=${packetsDropped.getAndSet(0)} underruns=+${underruns - statsLastUnderruns} queue=${queue.size} " +
+            "dropped=$droppedThisWindow underruns=+${underruns - statsLastUnderruns} queue=${queue.size} " +
             "compressedMs=${compressedQueueMillis()} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +
             "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +

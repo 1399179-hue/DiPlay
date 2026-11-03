@@ -147,6 +147,113 @@ class MediaClockTrimTest {
         assertEquals(0.0, MediaClockTrim.learnedTrim, 1e-8)
     }
 
+    /**
+     * Wireless CarPlay: the iPhone sends about 0.4 s of music at once, every 0.4 s by its clock give
+     * or take 30 ms (#807, #976). The head unit's clock is accurate; playback starts once the target,
+     * and at least one burst, is queued.
+     */
+    private class BurstDrive(targetMs: Int, seed: Int = 7) {
+        val target = 48L * targetMs
+        val trim = MediaClockTrim(48_000, target)
+        val random = Random(seed)
+        var queued = maxOf(target, 19_200L).toDouble()
+        val starvedSeconds = mutableListOf<Int>()
+        val ratesAfterAMinute = mutableListOf<Int>()
+
+        fun run(seconds: Int) {
+            var rate = 48_000
+            var burst = 1
+            var nextBurstMs = 400.0
+            var played = 0.0
+            for (ms in 0 until seconds * 1000) {
+                val nowNs = ms * 1_000_000L
+                if (ms >= nextBurstMs) {
+                    queued += 19_200
+                    burst++
+                    nextBurstMs = burst * 400 + (random.nextDouble() - 0.5) * 60
+                    trim.sample(queued.toLong(), nowNs)
+                    trim.rateDue(nowNs)?.let { rate = it }
+                    if (ms >= 60_000) ratesAfterAMinute += rate
+                }
+                played += rate / 1000.0
+                while (played >= 1024) {
+                    played -= 1024
+                    if (queued >= 1024) queued -= 1024 else { starvedSeconds += ms / 1000; queued = 0.0 }
+                }
+            }
+        }
+    }
+
+    @Test fun overWiFiTheDefaultBufferIsNotPlayedFast() {
+        for (seed in 1..3) {
+            MediaClockTrim.learnedTrim = 0.0
+            val drive = BurstDrive(300, seed)
+            drive.run(300)
+            assertEquals("seed $seed starved at ${drive.starvedSeconds}", 0, drive.starvedSeconds.count { it >= 60 })
+            assertEquals("seed $seed", 48_000.0, drive.ratesAfterAMinute.average(), 20.0)
+            assertTrue("seed $seed max ${drive.ratesAfterAMinute.max()}", drive.ratesAfterAMinute.max() < 48_200)
+        }
+    }
+
+    @Test fun overWiFiALongerBufferAlsoSettlesAtTheIphonesClock() {
+        val drive = BurstDrive(1000)
+        drive.run(300)
+        assertEquals(emptyList<Int>(), drive.starvedSeconds)
+        assertEquals(48_000.0, drive.ratesAfterAMinute.average(), 20.0)
+    }
+
+    /**
+     * Audio that arrived while a write was blocked counts from its own arrival (#1074).
+     *
+     * The two runs differ only in what [MediaClockTrim.sample] is told about those arrivals. With
+     * them the mean since the last write is fuller, so the controller sees less of a shortfall and
+     * slows music down far less than it would if the arrivals were charged to the sample time.
+     */
+    @Test fun audioThatArrivedDuringABlockedWriteCountsFromItsArrival() {
+        fun rateAfterABlockedWrite(credit: Boolean): Int {
+            // A 5 s target keeps the level well inside the ±0.25 control bound, so the arrival
+            // credit decides instead of the clamp.
+            val trim = MediaClockTrim(48_000, 240_000)
+            trim.sample(240_000, 1_000_000_000L)
+            trim.rateDue(1_000_000_000L)
+            // The write blocks for a second while 14_400 frames wait 0.9 s and another 14_400 wait
+            // 0.5 s behind it. arrivedFrameNs is frames times nanoseconds.
+            val waited = 14_400.0 * 0.9 * 1e9 + 14_400.0 * 0.5 * 1e9
+            trim.sample(240_000, 2_000_000_000L, arrivedFrameNs = if (credit) waited else 0.0)
+            return trim.rateDue(2_000_000_000L) ?: 48_000
+        }
+        val uncredited = rateAfterABlockedWrite(credit = false)
+        val credited = rateAfterABlockedWrite(credit = true)
+        assertTrue("ignoring the arrivals must slow music: $uncredited", uncredited < 48_000)
+        assertTrue("credited=$credited uncredited=$uncredited", credited > uncredited + 15)
+    }
+
+    /**
+     * The queue level a head unit really holds is not the start threshold: buffered music is fed a
+     * second ahead of real time, so playback starts partway through a burst (#1031/#1068). The
+     * controller measures the level instead, and only adopts it once two halves agree.
+     */
+    @Test fun theTargetIsMeasuredFromTheLevelTheQueueSettlesAt() {
+        val samples = MediaClockTrim(48_000, 14_400, measuresTarget = true)
+        // 600 ms queued steadily, sampled every 100 ms. The start threshold was only a guess.
+        for (tenth in 1..200) {
+            samples.sample(28_800, tenth * 100_000_000L)
+            samples.rateDue(tenth * 100_000_000L)
+        }
+        assertEquals(26_400, samples.targetFramesForTest)
+    }
+
+    @Test fun aDroppedPacketRestartsTheTargetMeasurement() {
+        val samples = MediaClockTrim(48_000, 14_400, measuresTarget = true)
+        for (tenth in 1..40) samples.sample(28_800, tenth * 100_000_000L)
+        assertEquals(26_400, samples.targetFramesForTest)
+        // A dropped packet leaves a hole: what was learned before it is not the level to hold.
+        samples.measureAgain()
+        samples.sample(28_800, 4_100_000_000L)
+        samples.sample(28_800, 4_200_000_000L)
+        assertEquals("the target is kept until a new one is measured", 26_400, samples.targetFramesForTest)
+    }
+
     @Test fun aSaturatedTrimNeverLearnsMoreThanItsBound() {
         val trim = MediaClockTrim(48_000, 48_000)
         var rate = 48_000
