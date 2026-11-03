@@ -4831,6 +4831,10 @@ class CarPlayHostActivity : ComponentActivity() {
         object : AirPlaySessionListener {
             private val diagnosticLog = sessionLog
 
+            // The head unit writes thousands of hex-dump trace lines per minute; it needs none of
+            // them, so the session does not even build the strings.
+            override val wantsTrace: Boolean get() = false
+
             override fun onSessionActive(session: AirPlaySession) {
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration) {

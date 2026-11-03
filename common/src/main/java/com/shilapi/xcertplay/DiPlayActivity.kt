@@ -397,7 +397,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             ?.let { runCatching { SettingsCategory.valueOf(it) }.getOrNull() }
         setupStep = savedInstanceState?.getInt("setup_step") ?: SetupGuide.STEP_CAR
         setupFromSettings = savedInstanceState?.getBoolean("setup_from_settings") ?: false
-        page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page")
+        page = savedInstanceState?.getString("page") ?: requestedPage(intent)
             // Tapping the launcher icon opens the connection screen: the driver wants to see and
             // start CarPlay, not to land in Settings and have to back out. The first-run setup
             // guide still comes first. A live session jumps to the projection above.
@@ -429,7 +429,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (isLauncherIntent(intent) && CarPlayBackgroundSession.hasSession()) {
             page = "home"; render(); openProjection(); return
         }
-        page = intent.getStringExtra("page") ?: "home"; render()
+        page = requestedPage(intent) ?: "home"; render()
         automaticVehicleValidationStarted = false
         scheduleAutomaticVehicleValidation()
         handleWirelessRecovery()
@@ -442,7 +442,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         }
     }
     private fun consumeBluetoothAutoConnectIntent(intent: Intent): Boolean {
-        val requested = intent.getBooleanExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT, false)
+        val requested = intent.getStringExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT) == PhoneBluetoothReceiver.launchToken
         intent.removeExtra(PhoneBluetoothReceiver.EXTRA_AUTO_CONNECT)
         return requested && DiPlayPreferences.connectOnPhoneBluetooth(this) &&
             DiPlayPreferences.phoneAddress(this) != null && setupError == null &&
@@ -532,7 +532,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             initialLaunch = false
             startCarHotspotOnLaunch()
             if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
-                DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null && page != "setup") {
+                DiPlayPreferences.autoConnect(this) && requestedPage(intent) == null && page != "setup") {
                 handler.post { connect(DiPlayPreferences.autoConnectWireless(this)) }
             }
         }
@@ -5403,7 +5403,7 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
         if (!SteeringProfiles.developerUnlocked(this)) return
         val body = column().apply { setPadding(dp(24), dp(12), dp(24), dp(12)) }
         body.addView(label(getString(R.string.diagnostic_report_copy_hint), 14, MUTED))
-        body.addView(label(report, 13, TEXT).apply {
+        body.addView(label(reportTail(report), 13, TEXT).apply {
             typeface = Typeface.MONOSPACE
             setTextIsSelectable(true)
         })
@@ -5411,6 +5411,25 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
             .setView(ScrollView(appDialogContext()).apply { addView(body) })
             .setPositiveButton(getString(R.string.close), null).show()
     }
+
+    /**
+     * A long session's report is megabytes of hex. The newest lines explain why the driver is here,
+     * so the tail is shown and the head is kept only as context inside the same budget.
+     */
+    internal fun reportTail(report: String): String {
+        val head = reportHead(report)
+        if (report.length <= REPORT_VIEW_MAX_CHARS) return report
+        // The tail fills whatever the head left, starting on a line boundary where one is available.
+        val budget = (REPORT_VIEW_MAX_CHARS - head.length).coerceAtLeast(0)
+        val from = report.length - budget
+        val cut = report.indexOf('\n', from)
+        val tail = if (cut in from until report.length) report.substring(cut + 1) else report.substring(from)
+        return head + "\n…\n" + tail
+    }
+
+    private fun reportHead(report: String): String =
+        if (report.length <= REPORT_HEAD_MAX_CHARS) report else report.take(REPORT_HEAD_MAX_CHARS)
+
     private fun permissionHelp(title: String, body: String) {
         appDialogBuilder().setTitle(title).setMessage(body).setPositiveButton(getString(R.string.app_settings)) { _, _ ->
             openSystem(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
@@ -6078,10 +6097,20 @@ class DiPlayActivity : ComponentActivity(), AppAppearanceOwner {
     private val FOCUS_RING get() = palette.focusRing
 
     companion object {
+        // A session report grows to megabytes of hex; the dialog shows the newest lines and a head.
+        private const val REPORT_VIEW_MAX_CHARS = 200_000
+        private const val REPORT_HEAD_MAX_CHARS = 20_000
+
         private fun usesChineseGlyphAlignment(language: String, text: CharSequence): Boolean {
             return language == "zh" && text.isNotBlank() &&
                 text.none { it in 'A'..'Z' || it in 'a'..'z' }
         }
+
+        // Any app can start this exported activity, so an intent may only open pages that do nothing on their own.
+        // "backup" is absent: it starts a network server and only a driver tap may open it.
+        private val INTENT_PAGES = setOf("home", "settings", "connection", "setup", "wireless-recovery")
+
+        private fun requestedPage(intent: Intent): String? = intent.getStringExtra("page")?.takeIf { it in INTENT_PAGES }
 
         internal fun isLauncherIntent(intent: Intent): Boolean =
             intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_LAUNCHER) &&
