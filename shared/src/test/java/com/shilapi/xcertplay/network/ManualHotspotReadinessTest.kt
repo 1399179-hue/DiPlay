@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.network
 
+import com.shilapi.xcertplay.orchestration.ConnectionFailureCause
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.InterruptedIOException
@@ -243,5 +244,34 @@ class ManualHotspotReadinessTest {
             .copy(apEnabled = false, vendorHostAddresses = mapOf("eth0.11" to ipv4))
         assertEquals("eth0.11", select(value)!!.name)
         assertTrue(select(value)!!.factoryRoute)
+    }
+
+    // Upstream | A saved interface the car does not have names its absence in the failure cause.
+    private fun notReady(savedInterface: String?, sample: HotspotNetworkSnapshot): WirelessStartupException {
+        now = 0
+        val error = assertThrows(WirelessStartupException::class.java) {
+            ManualHotspotReadiness({ sample }, { false }, { now += it }, { now }, configuredInterface = savedInterface).await(1_500)
+        }
+        assertEquals(WirelessStartupFailure.HOTSPOT_NOT_READY, error.reason)
+        assertEquals("Hotspot network is not ready", error.message)
+        return error
+    }
+
+    @Test fun aSavedInterfaceTheCarDoesNotHaveIsNamed() {
+        assertEquals(ConnectionFailureCause.HOTSPOT_INTERFACE_NOT_FOUND,
+            notReady("wlan9", snapshot(iface(), ap = setOf("wlan9"))).knownCause)
+    }
+
+    @Test fun theInterfaceIsNamedOnlyWhenTheHotspotIsOnAndTheSavedNameIsMissing() {
+        val missing = snapshot(iface(), ap = setOf("wlan9"))
+        assertNull(notReady(null, snapshot(iface("eth0"))).knownCause)
+        assertNull(notReady("", snapshot(iface("eth0"))).knownCause)
+        assertNull(notReady("wlan9", missing.copy(apEnabled = null)).knownCause)
+        assertNull(notReady("wlan9", missing.copy(apEnabled = false)).knownCause)
+        assertNull(notReady("eth0.3", snapshot(iface(), iface("eth0.3", addresses = emptyList()), ap = setOf("eth0.3"))).knownCause)
+    }
+
+    @Test fun aFailedInterfaceListingNamesNoInterface() {
+        assertNull(notReady("wlan9", snapshot(ap = setOf("wlan9"))).knownCause)
     }
 }

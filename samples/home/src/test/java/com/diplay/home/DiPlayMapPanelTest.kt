@@ -16,7 +16,7 @@ import org.robolectric.annotation.Config
 
 /** Another app can declare the map service too; the host token must only reach DiPlay. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [32, 36])
 class DiPlayMapPanelTest {
     private val app get() = RuntimeEnvironment.getApplication()
 

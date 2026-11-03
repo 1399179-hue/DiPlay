@@ -150,7 +150,11 @@ class CarPlayVpnConsentTest {
     }
 
     private fun field(name: String): Boolean = ReflectionHelpers.getField(activity, name)
-    private fun log() = File(activity.filesDir, "logs/diplay.log").readText()
+    /** The log is written off the caller's thread, so wait for the writer before reading it. */
+    private fun log(): String {
+        (ReflectionHelpers.getField<Any?>(activity, "sessionLog") as SessionLogFile).awaitIdle(2_000)
+        return File(activity.filesDir, "logs/diplay.log").readText()
+    }
     private fun invoke(name: String) {
         try { activity.javaClass.getDeclaredMethod(name).apply { isAccessible = true }.invoke(activity) }
         catch (error: InvocationTargetException) { throw error.targetException }
