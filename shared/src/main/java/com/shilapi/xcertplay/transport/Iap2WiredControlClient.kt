@@ -28,6 +28,9 @@ class Iap2WiredControlClient(
         locationProvider: Iap2LocationProvider? = null,
         vehicleStatusProvider: VehicleStatusProvider? = null,
         onIncoming: (Iap2Frame) -> Unit = {},
+        startSessionAgain: () -> StartAgain = { StartAgain.DONE },
+        onSessionStartSent: () -> Unit = {},
+        onSessionStartSentAgain: () -> Unit = {},
         onProgress: (String) -> Unit = {},
     ): Iap2WiredControlResult {
         require(availableCurrentMilliAmps in 0..0xffff) {
@@ -57,6 +60,8 @@ class Iap2WiredControlClient(
 
         var forwardedFrames = 0
         var carPlayStartSessions = 0
+        // Asked once per attempt while the iPhone has not connected; see WiredStartAgain.
+        var startAgainDecided = false
         val location = Iap2LocationReporter(locationProvider, onProgress, unsolicited = true)
         val vehicleStatus = Iap2VehicleStatusReporter(vehicleStatusProvider, onProgress)
         try {
@@ -67,7 +72,24 @@ class Iap2WiredControlClient(
                 }
                 location.tick { send(it, deadlineNanos) }
                 vehicleStatus.tick { send(it, deadlineNanos) }
-                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining))
+                var startAgainPending = false
+                if (!startAgainDecided && stage == Iap2WiredControlStage.CARPLAY_START_SENT) {
+                    when (startSessionAgain()) {
+                        StartAgain.WAIT -> startAgainPending = true
+                        StartAgain.DONE -> startAgainDecided = true
+                        StartAgain.SEND -> {
+                            startAgainDecided = true
+                            send(carPlayStartSession(endpoint), deadlineNanos)
+                            carPlayStartSessions++
+                            // The silent window restarts: the iPhone tries again for ~7 s.
+                            onSessionStartSentAgain()
+                            onProgress(START_SESSION_AGAIN_PROGRESS)
+                        }
+                    }
+                }
+                val pollTimeout = vehicleStatus.pollTimeout(location.pollTimeout(remaining)).let {
+                    if (startAgainPending) minOf(it, START_AGAIN_POLL_MILLIS) else it
+                }
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
                     if (session.isClosed) {
@@ -98,6 +120,7 @@ class Iap2WiredControlClient(
                         send(carPlayStartSession(endpoint), deadlineNanos)
                         stage = Iap2WiredControlStage.CARPLAY_START_SENT
                         carPlayStartSessions++
+                        onSessionStartSent()
                         onProgress("iap2 tx=0x4301 carplay-start-session")
                     }
 
@@ -125,8 +148,14 @@ class Iap2WiredControlClient(
         session.send(frame, requireRemaining(deadlineNanos))
     }
 
+    /** Asked while a session is awaited after `carplay-start-session`; see WiredStartAgain. */
+    enum class StartAgain { WAIT, SEND, DONE }
+
     companion object {
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
+        const val START_SESSION_AGAIN_PROGRESS =
+            "iap2 tx=0x4301 carplay-start-session again: no AirPlay session since USB came up"
+        private const val START_AGAIN_POLL_MILLIS = 500L
         private const val CARPLAY_AVAILABILITY = 0x4300
         private const val CARPLAY_START_SESSION = 0x4301
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L
