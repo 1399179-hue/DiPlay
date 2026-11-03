@@ -46,7 +46,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: check
     permissions:
-      contents: read
+      contents: write
     concurrency:
       group: android-release-main
       cancel-in-progress: false
@@ -54,31 +54,22 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Check the release keystore
+      - name: Check release signing and CarPlay authentication
         id: signing
         shell: bash
         env:
-          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           MFI_IDENTITY_BASE64: ${{ secrets.DIPLAY_AUTH_IDENTITY_BASE64 }}
           MFI_CERTIFICATE_BASE64: ${{ secrets.DIPLAY_AUTH_CERTIFICATE_BASE64 }}
         run: |
-          set -euo pipefail
-          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" ]]; then
+          if [[ -n "$KEYSTORE_BASE64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" && -n "$KEY_PASSWORD" && -n "$MFI_IDENTITY_BASE64" && -n "$MFI_CERTIFICATE_BASE64" ]]; then
             echo "available=true" >> "$GITHUB_OUTPUT"
           else
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Release is not configured. Add the four RELEASE_* signing secrets as repository Actions secrets."
-          fi
-          # CarPlay (MFi) authentication assets are optional. Without them the APK ships the
-          # no-MFi path this fork already uses; the build does not fail.
-          if [[ -n "$MFI_IDENTITY_BASE64" && -n "$MFI_CERTIFICATE_BASE64" ]]; then
-            echo "mfi=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "mfi=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No CarPlay authentication secrets; building the APK without offline MFi assets."
+            echo "::notice::Release is not configured. Add the four ANDROID_* signing secrets and DIPLAY_AUTH_IDENTITY_BASE64 plus DIPLAY_AUTH_CERTIFICATE_BASE64 as repository Actions secrets."
           fi
       - uses: actions/setup-java@v4
         if: steps.signing.outputs.available == 'true'
@@ -95,13 +86,12 @@ jobs:
         if: steps.signing.outputs.available == 'true'
         shell: bash
         env:
-          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
           set -euo pipefail
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/diplay-release.jks"
-          test -s "$RUNNER_TEMP/diplay-release.jks"
       - name: Prepare CarPlay authentication assets
-        if: steps.signing.outputs.available == 'true' && steps.signing.outputs.mfi == 'true'
+        if: steps.signing.outputs.available == 'true'
         shell: bash
         env:
           MFI_IDENTITY_BASE64: ${{ secrets.DIPLAY_AUTH_IDENTITY_BASE64 }}
@@ -126,34 +116,17 @@ jobs:
         if: steps.signing.outputs.available == 'true'
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/diplay-release.jks
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          # Set only when the CarPlay assets exist: an empty value would still count as an
-          # input and the credential check would then fail on the missing files.
-          MFI_READY: ${{ steps.signing.outputs.mfi }}
-        run: |
-          set -euo pipefail
-          if [[ "$MFI_READY" == 'true' ]]; then
-            export DIPLAY_AUTH_ASSETS_DIR="$RUNNER_TEMP/diplay-auth-assets"
-          fi
-          ./gradlew :mobile:assembleRelease --stacktrace
-      - name: Write checksums
-        if: steps.signing.outputs.available == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd mobile/build/outputs/apk/release
-          sha256sum *.apk > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          DIPLAY_AUTH_ASSETS_DIR: ${{ runner.temp }}/diplay-auth-assets
+        run: ./gradlew :mobile:assembleRelease --stacktrace
       - name: Upload signed release APK
         if: steps.signing.outputs.available == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: diplay-release-apk
-          path: |
-            mobile/build/outputs/apk/release/*.apk
-            mobile/build/outputs/apk/release/SHA256SUMS.txt
+          path: mobile/build/outputs/apk/release/*.apk
           if-no-files-found: error
       - name: Read app version
         if: steps.signing.outputs.available == 'true'
@@ -161,12 +134,85 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*$/\1/p' mobile/build.gradle.kts | head -n 1)"
+          version="$(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' mobile/build.gradle.kts | head -n 1)"
           if [[ -z "$version" ]]; then
             echo "::error::Could not read app version from mobile/build.gradle.kts"
             exit 1
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
+      - name: Publish or update GitHub Release
+        if: steps.signing.outputs.available == 'true'
+        uses: actions/github-script@v7
+        env:
+          APP_VERSION: ${{ steps.version.outputs.value }}
+        with:
+          script: |
+            const fs = require('fs');
+            const crypto = require('crypto');
+            const version = process.env.APP_VERSION;
+            const tag = `v${version}`;
+            const assetName = `DiPlay-${version}.apk`;
+            const releaseNotes = fs.readFileSync(`docs/UPDATE-NOTES-${version}.md`, 'utf8').trim();
+            if (!releaseNotes) throw new Error(`Release notes for ${version} are empty`);
+            const apkDir = 'mobile/build/outputs/apk/release';
+            const apks = fs.readdirSync(apkDir).filter(name => name.endsWith('.apk'));
+            if (apks.length !== 1) throw new Error(`Expected one release APK, found ${apks.length}`);
+            const apkPath = `${apkDir}/${apks[0]}`;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            let release;
+            try {
+              ({ data: release } = await github.rest.repos.getReleaseByTag({ owner, repo, tag }));
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              ({ data: release } = await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: tag,
+                target_commitish: context.sha,
+                name: `DiPlay ${tag}`,
+                body: releaseNotes,
+                draft: false,
+                prerelease: false,
+                make_latest: 'true',
+              }));
+            }
+            await github.rest.repos.updateRelease({
+              owner,
+              repo,
+              release_id: release.id,
+              body: releaseNotes,
+              draft: false,
+              prerelease: false,
+              make_latest: 'true',
+            });
+            for (const asset of release.assets) {
+              if (asset.name === assetName || asset.name === 'SHA256SUMS.txt') {
+                await github.rest.repos.deleteReleaseAsset({ owner, repo, asset_id: asset.id });
+              }
+            }
+            await github.rest.repos.uploadReleaseAsset({
+              owner,
+              repo,
+              release_id: release.id,
+              name: assetName,
+              data: fs.readFileSync(apkPath),
+              headers: {
+                'content-type': 'application/vnd.android.package-archive',
+                'content-length': fs.statSync(apkPath).size,
+              },
+            });
+            // carlito | The fork's in-app updater verifies this published APK before installation.
+            const checksums = Buffer.from(`${crypto.createHash('sha256').update(fs.readFileSync(apkPath)).digest('hex')}  ${assetName}\n`, 'utf8');
+            await github.rest.repos.uploadReleaseAsset({
+              owner,
+              repo,
+              release_id: release.id,
+              name: 'SHA256SUMS.txt',
+              data: checksums,
+              headers: { 'content-type': 'text/plain', 'content-length': checksums.length },
+            });
+            core.notice(`Published ${assetName} to ${tag}`);
       - name: Remove temporary signing key
         if: always() && steps.signing.outputs.available == 'true'
         run: rm -f "$RUNNER_TEMP/diplay-release.jks" && rm -rf "$RUNNER_TEMP/diplay-auth-assets"
