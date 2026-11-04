@@ -198,7 +198,8 @@ class CarPlayHostActivity : ComponentActivity() {
             vehicleStatusEnabled = com.shilapi.xcertplay.hud.BydOutputSettings.batteryToIphoneActive(this),
             chargingConnectors = com.shilapi.xcertplay.hud.BydOutputSettings.chargingConnectors(this),
             vehicleSpeedEnabled = locationReportingEnabled && (BridgeVehicleSpeedSource.enabled(this) ||
-                com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this)),
+                com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this) ||
+                EcarxWheelSpeed.present()),
         ),
         label = "LYNK&CO",
         hostName = "diplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
@@ -5121,11 +5122,24 @@ class CarPlayHostActivity : ComponentActivity() {
         val locationProvider: Iap2LocationProvider? =
             when {
                 !config.locationReportingEnabled -> null
-                config.identification.vehicleSpeedEnabled -> VehicleSpeedLocationProvider(
-                    AndroidCarPlayLocationProvider(this, precise = true),
-                    if (BridgeVehicleSpeedSource.enabled(this)) BridgeVehicleSpeedSource(applicationContext)
-                    else com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
-                )
+                config.identification.vehicleSpeedEnabled && BridgeVehicleSpeedSource.enabled(this) ->
+                    VehicleSpeedLocationProvider(
+                        AndroidCarPlayLocationProvider(this, precise = true),
+                        BridgeVehicleSpeedSource(applicationContext),
+                    )
+                config.identification.vehicleSpeedEnabled &&
+                    com.shilapi.xcertplay.hud.BydOutputSettings.wheelSpeedToIphoneActive(this) ->
+                    VehicleSpeedLocationProvider(
+                        AndroidCarPlayLocationProvider(this, precise = true),
+                        com.shilapi.xcertplay.hud.BydNavigationOutputs.wheelSpeed(applicationContext),
+                    )
+                config.identification.vehicleSpeedEnabled ->
+                    // An ECARX head unit has no GPS receiver of its own, so only the wheel speed
+                    // goes to the iPhone and it keeps using its own position.
+                    VehicleSpeedLocationProvider(
+                        EcarxWheelSpeed.NoPosition,
+                        EcarxWheelSpeed.attach(applicationContext),
+                    )
                 else -> AndroidCarPlayLocationProvider(this, precise = true)
             }
         appendLog(
