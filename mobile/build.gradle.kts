@@ -18,9 +18,10 @@ android {
         minSdk = 25
         targetSdk = 37
         // carlito | Fork installs must upgrade from code 39 while matching upstream's name.
-        // 42 carries the upstream v0.2.22 ports plus the wired second request (#962).
-        versionCode = 42
-        versionName = "0.2.17"
+        // 43 carries the 0.2.22 ports, the wireless handoff rebuild and the ECARX speed feed.
+        // The name follows upstream's numbering so a log stops looking five releases behind.
+        versionCode = 43
+        versionName = "0.2.22-fork.1"
 
     }
 

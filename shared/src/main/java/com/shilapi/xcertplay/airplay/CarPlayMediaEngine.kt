@@ -72,7 +72,9 @@ class CarPlayMediaEngine(
         val playoutLatencyMs: Int,
         @Volatile var firstSample: Int? = null,
         @Volatile var originNs: Long? = null,
-    )
+    ) {
+        val position = FeedbackPositionMonitor(format.rtpClockRate)
+    }
 
     private data class PendingIapTunnel(
         val bridge: AirPlayIapTunnelStream,
@@ -197,6 +199,7 @@ class CarPlayMediaEngine(
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[streamKey] = capture
+        val clockProbe = RtpClockProbe()
         val audio = AudioStream(key, type, session::logDebug)
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
@@ -207,8 +210,16 @@ class CarPlayMediaEngine(
                     microphone?.let { sink.onMicrophoneStarted(streamId, it) }
                 }
 
-                override fun onRtp(rtp: ByteArray, sample: Int) =
+                override fun onRtp(rtp: ByteArray, sample: Int) {
+                    // Diagnostics only, no behaviour change: the monitor compares the position we
+                    // report in /feedback with the newest RTP sample, and the probe measures the
+                    // clock this stream actually counts in.
+                    meta.position.observeRtp(sample)
+                    clockProbe.observe(sample, System.nanoTime())?.let { hz ->
+                        session.logDebug("Audio: rtp clock type=$type measuredHz=$hz")
+                    }
                     sink.onAudioRtp(streamId, format, rtp, sample)
+                }
 
                 override fun onPacket(
                     wire: ByteArray,
@@ -468,6 +479,8 @@ class CarPlayMediaEngine(
                 entry["timestamp"] = session.syncedNtp()
                 entry["timestampRawNs"] = nowNs
                 entry["sampleTime"] = sampleTime
+                meta.position.onFeedback(meta.type, entry["streamConnectionID"], sampleTime, nowNs)
+                    ?.let(session::logDebug)
             }
             entry
         } + listOfNotNull(buffered?.let { it.stream.feedback(session.syncedNtp(), it.connectionId) })
