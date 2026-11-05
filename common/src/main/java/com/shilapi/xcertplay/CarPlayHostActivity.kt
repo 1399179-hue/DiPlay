@@ -4418,15 +4418,12 @@ class CarPlayHostActivity : ComponentActivity() {
                 useHevc = false
                 mime = MediaFormat.MIMETYPE_VIDEO_AVC
                 decoders = avc
-            } else if (decoders.isEmpty()) {
-                // No hardware decoder for HEVC either, so the session runs in software whatever we
-                // ask for. Software H.264 costs about half the CPU of software HEVC at this size —
-                // the D511 tablet sits at 45% on OMX.google.hevc.decoder for 1280x800 — and its
-                // higher bitrate is the price. Only taken when neither codec has hardware.
-                useHevc = false
-                mime = MediaFormat.MIMETYPE_VIDEO_AVC
-                decoders = avc
             }
+            // When neither codec has hardware, HEVC is deliberately kept. Switching to software
+            // H.264 there looks cheaper but measured worse on the MT6762 tablet (8x A53, no video
+            // hardware at all): OMX.google.h264.decoder runs a single thread and took 139-345 ms
+            // per frame at 800x1280, against 27-42 ms on the frame-multithreaded
+            // OMX.google.hevc.decoder, with process CPU rising 45% -> 66%. Do not re-add that path.
         }
         val rate = if (display.fps > 30 && !supports(decoders, mime, display.fps) &&
             supports(decoders, mime, 30)) 30 else display.fps
