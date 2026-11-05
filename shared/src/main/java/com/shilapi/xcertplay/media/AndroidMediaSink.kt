@@ -850,15 +850,27 @@ internal data class DecoderAttempt(val codecName: String?, val tuned: Boolean, v
  * Configure attempts in order. Some vendor decoders (e.g. MediaTek c2.mtk.avc.decoder) reject the tuned
  * parameters with BAD_VALUE, so a minimal format and then software follow. An [operatingRate] is tried
  * first on its own, so a decoder that refuses it keeps the tuned format it gets without one. A
- * [lowLatencyDecoder] gets its tuned attempts before the default decoder's.
+ * [lowLatencyDecoder] gets its tuned attempts before the default decoder's, and so does a
+ * [hardwareDecoder] named explicitly.
+ *
+ * Naming the hardware decoder matters on APIs without [android.media.MediaCodecInfo.isHardwareAccelerated]
+ * (Android 9 and older): `createDecoderByType` there may hand back the Google software decoder even when
+ * the vendor hardware decoder is declared in `media_codecs.xml`, which costs a third of a small core per
+ * 1080p H.265 frame. Naming it first keeps the same fallbacks — a decoder that refuses the tune or the
+ * configure still falls through to the unnamed attempts and finally to [softwareDecoder].
  */
 internal fun videoDecoderAttempts(
     operatingRate: Int,
     softwareDecoder: String?,
     lowLatencyDecoder: String? = null,
+    hardwareDecoder: String? = null,
 ): List<DecoderAttempt> = listOfNotNull(
     lowLatencyDecoder?.let { DecoderAttempt(it, tuned = true, operatingRate = operatingRate).takeIf { operatingRate > 0 } },
     lowLatencyDecoder?.let { DecoderAttempt(it, tuned = true) },
+    hardwareDecoder?.takeIf { it != lowLatencyDecoder }?.let {
+        DecoderAttempt(it, tuned = true, operatingRate = operatingRate).takeIf { operatingRate > 0 }
+    },
+    hardwareDecoder?.takeIf { it != lowLatencyDecoder }?.let { DecoderAttempt(it, tuned = true) },
     DecoderAttempt(codecName = null, tuned = true, operatingRate = operatingRate).takeIf { operatingRate > 0 },
     DecoderAttempt(codecName = null, tuned = true),
     DecoderAttempt(codecName = null, tuned = false),
@@ -1209,7 +1221,12 @@ private class VideoDecoder(
         val requestedLowLatency = if (atOnce && !lowLatencyDecoderRefused) findLowLatencyDecoder(mime) else null
         var next: MediaCodec? = null
         var used: DecoderAttempt? = null
-        for (attempt in videoDecoderAttempts(requestedRate, softwareDecoderName(mime), requestedLowLatency)) {
+        for (attempt in videoDecoderAttempts(
+            requestedRate,
+            softwareDecoderName(mime),
+            requestedLowLatency,
+            hardwareDecoderName(mime),
+        )) {
             next = tryConfigure(mime, csd, surface, attempt, atOnce)
             if (next != null) { used = attempt; break }
         }
@@ -1330,6 +1347,28 @@ private class VideoDecoder(
     private fun listsPictureOrder(codec: MediaCodec): Boolean =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             runCatching { PICTURE_ORDER_PARAMETER in codec.supportedVendorParameters }.getOrDefault(false)
+
+    /**
+     * The vendor hardware decoder to name explicitly at configure. On Android 9 and older
+     * `createDecoderByType` can return the Google software decoder for H.265 even when a hardware
+     * decoder for the same MIME is declared, so the stream pays software-decode cost for nothing.
+     * Returns null when the user asked for the software HEVC decoder on purpose (Android 10+ only,
+     * where [createDecoder] honours that setting), or when no hardware decoder matches.
+     */
+    private fun hardwareDecoderName(mime: String): String? {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            mime == MediaFormat.MIMETYPE_VIDEO_HEVC &&
+            preferSoftwareHevcDecoder
+        ) return null
+        return runCatching {
+            // Same ordering the display negotiation uses: hardware first, and only decoders that
+            // support this canvas, so a 720p-only decoder cannot win the race to configure. The frame
+            // rate only breaks ties between equally sized candidates, so it may stay unknown here.
+            VideoDecoderSupport.candidates(mime, width, height, 0)
+                .firstOrNull { VideoDecoderSupport.isHardware(it) }?.name
+        }.getOrNull()
+    }
 
     private fun softwareDecoderName(mime: String): String? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null

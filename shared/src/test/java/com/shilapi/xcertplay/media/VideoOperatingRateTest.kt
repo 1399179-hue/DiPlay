@@ -49,4 +49,47 @@ class VideoOperatingRateTest {
         assertEquals(emptyList<String>(), vendorLowLatencyKeys("c2.mtk.avc.decoder"))
         assertEquals(emptyList<String>(), vendorLowLatencyKeys("c2.android.avc.decoder"))
     }
+
+    @Test fun aNamedHardwareDecoderIsTriedBeforeTheUnnamedFallbacks() {
+        // Android 9's createDecoderByType can hand back OMX.google.hevc.decoder while the vendor
+        // hardware decoder sits unused; naming it keeps the same fallbacks behind it.
+        assertEquals(
+            listOf(
+                DecoderAttempt("OMX.MTK.VIDEO.DECODER.HEVC", tuned = true, operatingRate = 30),
+                DecoderAttempt("OMX.MTK.VIDEO.DECODER.HEVC", tuned = true),
+                DecoderAttempt(null, tuned = true, operatingRate = 30),
+                DecoderAttempt(null, tuned = true),
+                DecoderAttempt(null, tuned = false),
+                DecoderAttempt("OMX.google.hevc.decoder", tuned = false),
+            ),
+            videoDecoderAttempts(
+                operatingRate = 30,
+                softwareDecoder = "OMX.google.hevc.decoder",
+                hardwareDecoder = "OMX.MTK.VIDEO.DECODER.HEVC",
+            ),
+        )
+    }
+
+    @Test fun aHardwareDecoderThatIsAlsoTheLowLatencyOneIsNotTriedTwice() {
+        assertEquals(
+            listOf(
+                DecoderAttempt("c2.qti.avc.decoder.low_latency", tuned = true),
+                DecoderAttempt(null, tuned = true),
+                DecoderAttempt(null, tuned = false),
+            ),
+            videoDecoderAttempts(
+                operatingRate = 0,
+                softwareDecoder = null,
+                lowLatencyDecoder = "c2.qti.avc.decoder.low_latency",
+                hardwareDecoder = "c2.qti.avc.decoder.low_latency",
+            ),
+        )
+    }
+
+    @Test fun withoutANamedHardwareDecoderTheAttemptsAreUnchanged() {
+        assertEquals(
+            listOf(DecoderAttempt(null, tuned = true), DecoderAttempt(null, tuned = false)),
+            videoDecoderAttempts(0, softwareDecoder = null, hardwareDecoder = null),
+        )
+    }
 }
