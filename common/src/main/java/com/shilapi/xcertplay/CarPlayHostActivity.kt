@@ -4418,6 +4418,14 @@ class CarPlayHostActivity : ComponentActivity() {
                 useHevc = false
                 mime = MediaFormat.MIMETYPE_VIDEO_AVC
                 decoders = avc
+            } else if (decoders.isEmpty()) {
+                // No hardware decoder for HEVC either, so the session runs in software whatever we
+                // ask for. Software H.264 costs about half the CPU of software HEVC at this size —
+                // the D511 tablet sits at 45% on OMX.google.hevc.decoder for 1280x800 — and its
+                // higher bitrate is the price. Only taken when neither codec has hardware.
+                useHevc = false
+                mime = MediaFormat.MIMETYPE_VIDEO_AVC
+                decoders = avc
             }
         }
         val rate = if (display.fps > 30 && !supports(decoders, mime, display.fps) &&
