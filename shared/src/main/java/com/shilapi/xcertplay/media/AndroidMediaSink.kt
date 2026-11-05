@@ -1363,8 +1363,9 @@ private class VideoDecoder(
         ) return null
         return runCatching {
             // Same ordering the display negotiation uses: hardware first, and only decoders that
-            // support this canvas, so a 720p-only decoder cannot win the race to configure.
-            VideoDecoderSupport.candidates(mime, width, height, mainVideoFrameRate)
+            // support this canvas, so a 720p-only decoder cannot win the race to configure. The frame
+            // rate only breaks ties between equally sized candidates, so it may stay unknown here.
+            VideoDecoderSupport.candidates(mime, width, height, 0)
                 .firstOrNull { VideoDecoderSupport.isHardware(it) }?.name
         }.getOrNull()
     }
