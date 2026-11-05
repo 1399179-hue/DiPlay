@@ -1,7 +1,5 @@
 package com.shilapi.xcertplay.media
 
-import android.util.Log
-
 /** Five-second video counters that separate network/iPhone gaps from decoder throughput. */
 internal class VideoStats(
     private val label: String = "",
@@ -75,7 +73,9 @@ internal class VideoStats(
             touchAvgMs, maxTouchLatencyNs / 1_000_000, touchSamples, TouchLatencyProbe.maxSendNs / 1_000_000,
         ) + decodeSummary()
         TouchLatencyProbe.maxSendNs = 0
-        Log.i(TAG, line)
+        // The caller hands this line to the session's diagnostic channel, which logs it once as
+        // "Video: video stats ...". Logging it here as well printed every window twice, byte for
+        // byte, under a second tag.
         windowStartNs = now
         received = 0; rendered = 0; recoveries = 0; bytes = 0; maxArrivalGapNs = 0
         touchSamples = 0; touchLatencySumNs = 0; maxTouchLatencyNs = 0
@@ -84,7 +84,6 @@ internal class VideoStats(
     }
 
     private companion object {
-        const val TAG = "DiPlay-VideoStats"
         const val WINDOW_NS = 5_000_000_000L
         const val IDLE_GAP_NS = 2_000_000_000L // longer gaps are a static screen, not lag
     }
