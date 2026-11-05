@@ -637,7 +637,7 @@ internal object CarPlayMediaKeys {
         }
         val state = if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         val position = nowPlaying.elapsedMillis ?: PlaybackState.PLAYBACK_POSITION_UNKNOWN
-        val shape = PublishedPlayback(state, position, if (playing) 1f else 0f, elapsedUpdatedAt)
+        val shape = PublishedPlayback(state, avrcpPosition(playing, position), if (playing) 1f else 0f)
         // Resolve the session first: a state recorded without one would be skipped by the first
         // publish after the next session starts.
         val target = session ?: return
@@ -658,12 +658,15 @@ internal object CarPlayMediaKeys {
         )
     }
 
-    /** What [publishPlaybackStateLocked] last sent; comparing it drops the iPhone's repeats. */
+    /**
+     * What [publishPlaybackStateLocked] last sent; comparing it drops the iPhone's repeats. The update
+     * timestamp is deliberately absent: it moves with every message, so including it made the
+     * comparison always differ and the filter never fire.
+     */
     private data class PublishedPlayback(
         val state: Int,
         val position: Long,
         val speed: Float,
-        val updatedAt: Long,
     )
 
     private fun send(index: Int, source: String) {
@@ -786,6 +789,20 @@ internal object CarPlayMediaKeys {
     private const val MAX_ARTWORK_SOURCE_DIMENSION = 8_192
     private const val MAX_CACHED_ARTWORK = 4
 }
+
+/**
+ * The play position as the car sees it. AVRCP carries the position in whole seconds, so while the
+ * iPhone streams a progress tick every ~0.6 s, roughly two of three updates land in the same second.
+ * The bluetooth stack (NewAvrcpMediaPlayerWrapper) compares state/position/speed before publishing and
+ * logs "tried to update with no new data" when nothing it tracks changed — 740 times in 24 minutes on
+ * the Tang, and still 28 times a minute on the D511 test tablet over USB after the repeat filter in
+ * [CarPlayMediaKeys]. Comparing the second instead of the millisecond is what makes that filter work.
+ *
+ * The position handed to the session stays exact; only the comparison is coarsened, so Android can
+ * still extrapolate sub-second progress. A negative position means "unknown" and stays negative.
+ */
+internal fun avrcpPosition(playing: Boolean, position: Long): Long =
+    if (playing && position >= 0) position / 1_000L else position
 
 /**
  * Media-session input → CarPlay presses. Hardware keys arrive as button events and keep the toggle;
