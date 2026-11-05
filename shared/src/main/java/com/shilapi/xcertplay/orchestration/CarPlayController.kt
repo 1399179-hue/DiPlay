@@ -474,7 +474,14 @@ class CarPlayController(
         }
 
         override fun onDebugLog(message: String) {
-            debugLog(message)
+            // AirPlaySession.debugLog already wrote this line to logcat under the same tag
+            // ("xcertplay-usb"), so routing it through debugLog() printed every session line twice
+            // and halved the window the log buffer covers. Forward to the host only.
+            try {
+                uiListener?.onDebugLog(message)
+            } catch (error: Exception) {
+                Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", error)
+            }
         }
     }
 
