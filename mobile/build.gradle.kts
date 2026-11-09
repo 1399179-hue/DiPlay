@@ -20,8 +20,8 @@ android {
         // carlito | Fork installs must upgrade from code 39 while matching upstream's name.
         // 43 carries the 0.2.22 ports, the wireless handoff rebuild and the ECARX speed feed.
         // The name follows upstream's numbering so a log stops looking five releases behind.
-        versionCode = 46
-        versionName = "0.2.22-fork.4"
+        versionCode = 47
+        versionName = "0.2.22-fork.5"
 
     }
 
