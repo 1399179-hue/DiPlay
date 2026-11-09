@@ -162,6 +162,24 @@ internal fun isWirelessHandoffInProgress(
 ): Boolean = handoffRequested || tunnelActive || sessionActive
 
 /**
+ * True when an RFCOMM EOF must keep a working Wi-Fi AirPlay tunnel instead of failing bring-up.
+ *
+ * A clean Bluetooth EOF is a dead [Iap2LinkEngine], which raises [IOException] "iAP2 link ended"
+ * rather than returning [Iap2WirelessControlTerminal.CHANNEL_CLOSED]. That path never reaches the
+ * CHANNEL_CLOSED branch below, so it is decided here: only once an AirPlay session is live or has
+ * rendered a frame, and only for that exact failure. A control channel that closed before the
+ * tunnel was ready, a malformed inbound frame, and any non-IOException stay fatal.
+ */
+internal fun isRfcommEofAfterAirPlaySession(
+    error: Throwable,
+    sessionActive: Boolean,
+    frameRendered: Boolean,
+): Boolean =
+    (sessionActive || frameRendered) &&
+        error is IOException &&
+        error.message?.contains("iAP2 link ended") == true
+
+/**
  * Wires the complete wired or wireless CarPlay path: MFi coprocessor discovery, iPhone bring-up,
  * iAP2 control, transport setup, and the AirPlay media/input sessions.
  *
@@ -1685,6 +1703,20 @@ class CarPlayController(
             }
             if (wirelessActiveReported.get() && error !is Error) {
                 debugLog("wireless RFCOMM control ended after tunnel handoff: ${error.message}")
+            } else if (
+                isRfcommEofAfterAirPlaySession(
+                    error,
+                    sessionActive = activeSession != null,
+                    frameRendered = wirelessConnectionProof.hasRenderedFrame(generation),
+                )
+            ) {
+                // The phone closed RFCOMM by itself, which it sometimes does right after the
+                // AirPlay control connection and SETUP. Failing here tore down a working Wi-Fi
+                // tunnel and started the retry loop: a ~50 s black screen. Keep the tunnel.
+                debugLog(
+                    "wireless RFCOMM ended after the AirPlay session started; " +
+                        "keeping the Wi-Fi AirPlay tunnel alive",
+                )
             } else {
                 debugLog("wireless bring-up failed", error)
                 if (error is Error) throw error
