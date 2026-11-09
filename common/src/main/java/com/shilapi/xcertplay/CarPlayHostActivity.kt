@@ -690,8 +690,13 @@ class CarPlayHostActivity : ComponentActivity() {
 
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             if (holder !== fallbackVideoView?.holder) return
-            // Holder dimensions describe the fitted video, not the host window/CarPlay canvas.
-            videoView?.let { updateVideoLayout(it.width, it.height) }
+            // Holder dimensions describe the fitted video, not the host window/CarPlay canvas. With
+            // smooth video the SurfaceView is the only resize signal on head units that never dispatch
+            // onConfigurationChanged, so renegotiate the CarPlay canvas just like the TextureView path.
+            videoView?.let {
+                updateVideoLayout(it.width, it.height)
+                scheduleDisplaySize(it.width, it.height)
+            }
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
