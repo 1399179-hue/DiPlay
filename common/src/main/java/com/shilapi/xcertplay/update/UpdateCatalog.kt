@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.update
 
 import java.net.URI
+import java.util.Locale
 import org.json.JSONArray
 
 /** The published release that a newer build can be downloaded from. */
@@ -16,11 +17,25 @@ internal object UpdateCatalog {
     private const val DOWNLOAD_HOST = "github.com"
     // The name becomes a file in the cache folder, so it can hold no path.
     private val APK_NAME = Regex("[A-Za-z0-9][A-Za-z0-9._-]*\\.apk")
+    private val ALLOWED_HOSTS = setOf(
+        "github.com", "api.github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com",
+    )
+
+    /**
+     * A release asset may only live on GitHub's own hosts over plain HTTPS: no user info, no odd
+     * port. Both the catalog and the downloader call this, so a replaced release JSON cannot point
+     * the installer at an arbitrary server even when its SHA256SUMS file is self-consistent.
+     */
+    internal fun isAllowedUrl(url: String): Boolean {
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase(Locale.ROOT) ?: return false
+        return uri.scheme.equals("https", ignoreCase = true) && host in ALLOWED_HOSTS &&
+            uri.rawUserInfo == null && (uri.port == -1 || uri.port == 443)
+    }
 
     private fun isDownloadUrl(url: String): Boolean {
         val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        return uri.scheme.equals("https", ignoreCase = true) && uri.host.equals(DOWNLOAD_HOST, ignoreCase = true) &&
-            uri.rawUserInfo == null && uri.port == -1
+        return isAllowedUrl(url) && uri.host.equals(DOWNLOAD_HOST, ignoreCase = true) && uri.port == -1
     }
 
     /** Returns the first published release that carries an APK and its checksums, or null. */
