@@ -75,6 +75,31 @@ class UpdateCatalogTest {
     fun returnsNullForAnEmptyReleaseList() {
         assertNull(UpdateCatalog.parse("[]"))
     }
+
+    @Test
+    fun allowedUrlsCoverGithubsOwnHostsOnly() {
+        for (url in listOf(
+            "https://github.com/x/y.apk",
+            "https://api.github.com/repos/x/releases",
+            "https://objects.githubusercontent.com/x",
+            "https://release-assets.githubusercontent.com/x",
+        )) {
+            org.junit.Assert.assertTrue(url, UpdateCatalog.isAllowedUrl(url))
+        }
+        for (url in listOf(
+            "http://github.com/x/y.apk",
+            "https://evil.example/x.apk",
+            "https://github.com.evil.example/x.apk",
+            "https://github.com@evil.example/x.apk",
+            "https://user@github.com/x.apk",
+            "https://github.com:8443/x.apk",
+            "ftp://github.com/x.apk",
+            "file:///sdcard/x.apk",
+            "not a url",
+        )) {
+            org.junit.Assert.assertFalse(url, UpdateCatalog.isAllowedUrl(url))
+        }
+    }
     private fun releaseWith(apkName: String = "DiPlay-0.2.22.apk", apkUrl: String, checksumsUrl: String = GITHUB + "SHA256SUMS.txt") = """
         [{"tag_name": "v0.2.22", "draft": false, "assets": [
           {"name": ${org.json.JSONObject.quote(apkName)}, "browser_download_url": ${org.json.JSONObject.quote(apkUrl)}},
